@@ -1,0 +1,625 @@
+## ----setup, echo=FALSE, message=FALSE, warning=FALSE--------------------------
+library(knitr)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+library(scales)
+library(patchwork)
+library(UpSetR)
+library(gtsummary)
+library(forcats)
+
+opts_chunk$set(
+  fig.width = 6, fig.height = 4, cache = FALSE,
+  echo = FALSE, warning = FALSE, message = FALSE,
+  results = "markup"
+)
+
+options(stringsAsFactors = FALSE)
+
+baseDir <- "/Users/tedwards/Documents/projects/VM_brainGutCoaching"
+setwd(baseDir)
+
+dataOutputDir <- file.path(baseDir, "data/outputData")
+plotDir <- file.path(baseDir, "figures")
+dataDate <- "2026-03-19"
+filenameSuffix <- paste0("VMBGCC.", dataDate)
+
+source(file.path(baseDir, "code/VMBGCC_functions.R"))
+
+# Load clean data from Phase 1
+bgcc.df <- readRDS(file.path(dataOutputDir, paste0(filenameSuffix, "_bgccClean.rds")))
+thematic.df <- readRDS(file.path(dataOutputDir, paste0(filenameSuffix, "_thematicCoding.rds")))
+
+cat("Loaded:", nrow(bgcc.df), "patients x", ncol(bgcc.df), "variables\n")
+
+
+## ----table1-------------------------------------------------------------------
+# One-hot diagnosis columns for prevalence
+diagCols <- c(
+  "IBS_C", "IBS_D", "IBS_M",
+  "chronicIdiopathicConstipation", "functionalConstipation",
+  "functionalDiarrhea", "cmAbdominalPainSyndrome",
+  "functionalAbdominalPain", "functionalDyspepsia",
+  "functionalBloating", "cyclicVomiting",
+  "ruminationSyndrome", "idiopathicGastroparesis",
+  "opioidInducedConstipation", "cannabinoidHyperemesis",
+  "functionalHeartburn", "functionalNeurologicSyndrome"
+)
+
+# Prepare a table-ready dataset
+table1.df <- bgcc.df %>%
+  mutate(
+    Sex = sex,
+    Age = age,
+    `Referring Provider` = referringProvider,
+    `No. DBGI Diagnoses` = nDiagnoses,
+    `Pre-class IBS-SSS` = preIBSSSS,
+    `Pre-class PHQ-2` = prePHQ2,
+    `Pre-class GAD-7` = preGAD7,
+    `Pre-class IBS-SSS Severity` = preIBSSSSBand,
+    `Pre-class GAD-7 Severity` = preGAD7Band,
+    `Pre-class PHQ-2 Screen` = prePHQ2Screen,
+    `Pre-class Office Visits` = preOfficeVisits,
+    `Pre-class Portal Messages` = prePortalMessages,
+    `Pre-class ER Visits` = preERVisits,
+    `Responded to Survey` = respondedToSurvey
+  )
+
+tbl1 <- table1.df %>%
+  select(
+    Sex, Age, `Referring Provider`, `No. DBGI Diagnoses`,
+    `Pre-class IBS-SSS`, `Pre-class PHQ-2`, `Pre-class GAD-7`,
+    `Pre-class IBS-SSS Severity`, `Pre-class GAD-7 Severity`,
+    `Pre-class PHQ-2 Screen`,
+    `Pre-class Office Visits`, `Pre-class Portal Messages`, `Pre-class ER Visits`,
+    `Responded to Survey`
+  ) %>%
+  tbl_summary(
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd}); median {median} [{min}, {max}]",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    missing = "ifany",
+    missing_text = "Missing"
+  ) %>%
+  bold_labels()
+
+tbl1
+
+
+## ----table1Print--------------------------------------------------------------
+# Also create text summary for non-HTML output
+cat("=== Table 1: Cohort Characteristics (N =", nrow(bgcc.df), ") ===\n\n")
+
+cat("Age: mean =", round(mean(bgcc.df$age, na.rm = TRUE), 1),
+  "(SD =", round(sd(bgcc.df$age, na.rm = TRUE), 1), "),",
+  "median =", median(bgcc.df$age, na.rm = TRUE),
+  "[", min(bgcc.df$age, na.rm = TRUE), "-", max(bgcc.df$age, na.rm = TRUE), "]\n")
+
+cat("\nSex:\n")
+sexTab <- table(bgcc.df$sex, useNA = "ifany")
+for (i in seq_along(sexTab)) {
+  cat(sprintf("  %s: %d (%.1f%%)\n", names(sexTab)[i], sexTab[i],
+    100 * sexTab[i] / sum(sexTab)))
+}
+
+cat("\nReferring Provider:\n")
+provTab <- sort(table(bgcc.df$referringProvider), decreasing = TRUE)
+for (i in seq_along(provTab)) {
+  cat(sprintf("  %s: %d (%.1f%%)\n", names(provTab)[i], provTab[i],
+    100 * provTab[i] / nrow(bgcc.df)))
+}
+
+cat("\nNo. DBGI Diagnoses:\n")
+diagCountTab <- table(bgcc.df$nDiagnoses, useNA = "ifany")
+for (i in seq_along(diagCountTab)) {
+  cat(sprintf("  %s: %d (%.1f%%)\n", names(diagCountTab)[i], diagCountTab[i],
+    100 * diagCountTab[i] / nrow(bgcc.df)))
+}
+
+cat("\nSurvey response rate:", sum(bgcc.df$respondedToSurvey), "/", nrow(bgcc.df),
+  sprintf("(%.1f%%)\n", 100 * mean(bgcc.df$respondedToSurvey)))
+
+
+## ----diagnosisPrevalence------------------------------------------------------
+cat("=== Individual DBGI Diagnosis Prevalence ===\n\n")
+
+diagPrev.df <- data.frame(
+  diagnosis = diagCols,
+  n = sapply(diagCols, function(col) sum(bgcc.df[[col]] == 1, na.rm = TRUE)),
+  stringsAsFactors = FALSE
+) %>%
+  mutate(
+    pct = round(100 * n / nrow(bgcc.df), 1),
+    label = gsub("([A-Z])", " \\1", diagnosis) %>% trimws()
+  ) %>%
+  arrange(desc(n))
+
+for (i in 1:nrow(diagPrev.df)) {
+  cat(sprintf("  %-35s: %3d (%5.1f%%)\n",
+    diagPrev.df$diagnosis[i], diagPrev.df$n[i], diagPrev.df$pct[i]))
+}
+
+
+## ----missingnessTable---------------------------------------------------------
+cat("=== Missingness Report ===\n\n")
+
+missingReport.df <- data.frame(
+  variable = colnames(bgcc.df),
+  nMissing = sapply(bgcc.df, function(x) sum(is.na(x))),
+  pctMissing = sapply(bgcc.df, function(x) round(100 * mean(is.na(x)), 1)),
+  nAvailable = sapply(bgcc.df, function(x) sum(!is.na(x))),
+  stringsAsFactors = FALSE
+) %>%
+  arrange(desc(pctMissing))
+
+print(missingReport.df %>% filter(pctMissing > 0), row.names = FALSE)
+
+
+## ----analyticSampleSizes------------------------------------------------------
+cat("\n=== Analytic Sample Sizes ===\n\n")
+
+sampleSizes <- tibble(
+  outcome = c("IBS-SSS", "PHQ-2", "GAD-7",
+    "Office Visits", "Portal Messages", "ER Visits"),
+  nPre = c(
+    sum(!is.na(bgcc.df$preIBSSSS)),
+    sum(!is.na(bgcc.df$prePHQ2)),
+    sum(!is.na(bgcc.df$preGAD7)),
+    sum(!is.na(bgcc.df$preOfficeVisits)),
+    sum(!is.na(bgcc.df$prePortalMessages)),
+    sum(!is.na(bgcc.df$preERVisits))
+  ),
+  nPost = c(
+    sum(!is.na(bgcc.df$postIBSSSS)),
+    sum(!is.na(bgcc.df$postPHQ2)),
+    sum(!is.na(bgcc.df$postGAD7)),
+    sum(!is.na(bgcc.df$postOfficeVisits)),
+    sum(!is.na(bgcc.df$postPortalMessages)),
+    sum(!is.na(bgcc.df$postERVisits))
+  ),
+  nPaired = c(
+    sum(!is.na(bgcc.df$preIBSSSS) & !is.na(bgcc.df$postIBSSSS)),
+    sum(!is.na(bgcc.df$prePHQ2) & !is.na(bgcc.df$postPHQ2)),
+    sum(!is.na(bgcc.df$preGAD7) & !is.na(bgcc.df$postGAD7)),
+    sum(!is.na(bgcc.df$preOfficeVisits) & !is.na(bgcc.df$postOfficeVisits)),
+    sum(!is.na(bgcc.df$prePortalMessages) & !is.na(bgcc.df$postPortalMessages)),
+    sum(!is.na(bgcc.df$preERVisits) & !is.na(bgcc.df$postERVisits))
+  )
+)
+
+print(as.data.frame(sampleSizes))
+
+
+## ----missingness_MCAR---------------------------------------------------------
+cat("\n=== Missingness Pattern Analysis ===\n")
+cat("Testing whether IBS-SSS missingness is associated with demographics\n\n")
+
+# Create indicator: is preIBSSSS missing?
+bgcc.df$ibsSSSmissing <- is.na(bgcc.df$preIBSSSS)
+
+# Compare demographics between missing vs observed
+cat("IBS-SSS pre-score available:\n")
+cat("  Observed:", sum(!bgcc.df$ibsSSSmissing), "  Missing:", sum(bgcc.df$ibsSSSmissing), "\n\n")
+
+# Age comparison
+ageObs <- bgcc.df$age[!bgcc.df$ibsSSSmissing]
+ageMis <- bgcc.df$age[bgcc.df$ibsSSSmissing]
+cat("Age — Observed: mean=", round(mean(ageObs, na.rm = TRUE), 1),
+  " Missing: mean=", round(mean(ageMis, na.rm = TRUE), 1), "\n")
+wAge <- wilcox.test(ageObs, ageMis)
+cat("  Wilcoxon p =", format.pval(wAge$p.value, digits = 3), "\n\n")
+
+# Sex comparison
+sexObsTab <- table(bgcc.df$sex[!bgcc.df$ibsSSSmissing])
+sexMisTab <- table(bgcc.df$sex[bgcc.df$ibsSSSmissing])
+cat("Sex distribution — Observed:\n")
+print(sexObsTab)
+cat("Sex distribution — Missing:\n")
+print(sexMisTab)
+sexTest <- chisq.test(table(bgcc.df$sex, bgcc.df$ibsSSSmissing))
+cat("  Chi-squared p =", format.pval(sexTest$p.value, digits = 3), "\n\n")
+
+# nDiagnoses comparison
+nDiagObs <- bgcc.df$nDiagnoses[!bgcc.df$ibsSSSmissing]
+nDiagMis <- bgcc.df$nDiagnoses[bgcc.df$ibsSSSmissing]
+cat("nDiagnoses — Observed: mean=", round(mean(nDiagObs, na.rm = TRUE), 1),
+  " Missing: mean=", round(mean(nDiagMis, na.rm = TRUE), 1), "\n")
+wDiag <- wilcox.test(nDiagObs, nDiagMis)
+cat("  Wilcoxon p =", format.pval(wDiag$p.value, digits = 3), "\n")
+
+# Logistic regression: missingness ~ age + sex + nDiagnoses
+missModel <- glm(ibsSSSmissing ~ age + sex + nDiagnoses,
+  data = bgcc.df, family = binomial)
+cat("\nLogistic regression: IBS-SSS missingness ~ age + sex + nDiagnoses\n")
+print(summary(missModel)$coefficients)
+
+# Clean up temp variable
+bgcc.df$ibsSSSmissing <- NULL
+
+
+## ----temporalEnrollment, fig.width=8, fig.height=4----------------------------
+# Patients per class date
+classDateCounts <- bgcc.df %>%
+  count(classDate) %>%
+  arrange(classDate)
+
+pEnrollment <- ggplot(classDateCounts, aes(x = classDate, y = n)) +
+  geom_col(fill = "steelblue", width = 15) +
+  geom_smooth(method = "loess", se = FALSE, color = "firebrick", linewidth = 0.8) +
+  labs(
+    x = "Class Date", y = "Number of Patients",
+    title = "BGCC Enrollment Over Time"
+  ) +
+  scale_x_date(date_breaks = "3 months", date_labels = "%b %Y") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(pEnrollment)
+savePlot(pEnrollment, plotDir, "enrollmentTimeline",
+  height = 4, width = 8)
+
+cat("\nPatients per class date:\n")
+print(as.data.frame(classDateCounts))
+
+
+## ----temporalSeverity, fig.width=8, fig.height=5------------------------------
+# Track whether baseline severity shifts over time
+bgcc.df$classMonth <- factor(bgcc.df$classMonth)
+
+# IBS-SSS by class month (only for months with >=3 observations)
+ibsByMonth <- bgcc.df %>%
+  filter(!is.na(preIBSSSS)) %>%
+  group_by(classMonth) %>%
+  filter(n() >= 3) %>%
+  summarise(
+    n = n(),
+    meanIBSSSS = mean(preIBSSSS, na.rm = TRUE),
+    seIBSSSS = sd(preIBSSSS, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  )
+
+if (nrow(ibsByMonth) > 2) {
+  pIBSTime <- ggplot(ibsByMonth, aes(x = classMonth, y = meanIBSSSS)) +
+    geom_pointrange(aes(
+      ymin = meanIBSSSS - 1.96 * seIBSSSS,
+      ymax = meanIBSSSS + 1.96 * seIBSSSS
+    )) +
+    geom_hline(yintercept = c(75, 175, 300), linetype = "dashed",
+      color = c("green4", "goldenrod", "firebrick"), alpha = 0.6) +
+    labs(
+      x = "Class Month", y = "Mean Pre-class IBS-SSS",
+      title = "Baseline IBS-SSS Severity Over Time",
+      caption = "Dashed lines: IBS-SSS severity thresholds (75, 175, 300)"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  print(pIBSTime)
+  savePlot(pIBSTime, plotDir, "baselineIBSSSS_byMonth",
+    height = 5, width = 8)
+}
+
+
+## ----diagnosisBarChart, fig.width=8, fig.height=5-----------------------------
+diagPrev.df <- data.frame(
+  diagnosis = diagCols,
+  n = sapply(diagCols, function(col) sum(bgcc.df[[col]] == 1, na.rm = TRUE)),
+  stringsAsFactors = FALSE
+) %>%
+  mutate(pct = 100 * n / nrow(bgcc.df))
+
+# Create nice labels
+labelMap <- c(
+  IBS_C = "IBS-C", IBS_D = "IBS-D", IBS_M = "IBS-M",
+  chronicIdiopathicConstipation = "Chronic Idiopathic Constipation",
+  functionalConstipation = "Functional Constipation",
+  functionalDiarrhea = "Functional Diarrhea",
+  cmAbdominalPainSyndrome = "CM Abdominal Pain Syndrome",
+  functionalAbdominalPain = "Functional Abdominal Pain",
+  functionalDyspepsia = "Functional Dyspepsia",
+  functionalBloating = "Functional Bloating",
+  cyclicVomiting = "Cyclic Vomiting",
+  ruminationSyndrome = "Rumination Syndrome",
+  idiopathicGastroparesis = "Idiopathic Gastroparesis",
+  opioidInducedConstipation = "Opioid-Induced Constipation",
+  cannabinoidHyperemesis = "Cannabinoid Hyperemesis",
+  functionalHeartburn = "Functional Heartburn",
+  functionalNeurologicSyndrome = "Functional Neurologic Syndrome"
+)
+
+diagPrev.df$label <- labelMap[diagPrev.df$diagnosis]
+diagPrev.df <- diagPrev.df %>% arrange(n)
+diagPrev.df$label <- factor(diagPrev.df$label, levels = diagPrev.df$label)
+
+pDiagBar <- ggplot(diagPrev.df, aes(x = label, y = n)) +
+  geom_col(fill = "steelblue") +
+  geom_text(aes(label = sprintf("%d (%.0f%%)", n, pct)),
+    hjust = -0.1, size = 3) +
+  coord_flip() +
+  labs(x = NULL, y = "Number of Patients",
+    title = "DBGI Diagnosis Prevalence") +
+  theme_minimal() +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.3)))
+
+print(pDiagBar)
+savePlot(pDiagBar, plotDir, "diagnosisPrevalence",
+  height = 5, width = 8)
+
+
+## ----diagnosisUpset, fig.width=10, fig.height=6-------------------------------
+# UpSet plot of diagnosis co-occurrence
+# Build binary matrix for UpSetR (needs named list or data frame of 0/1)
+upsetData <- bgcc.df %>%
+  filter(!is.na(dbgiDiagnoses)) %>%
+  select(all_of(diagCols))
+
+# Rename columns to nice labels
+colnames(upsetData) <- labelMap[colnames(upsetData)]
+
+# Only include diagnoses with >= 3 patients
+diagFreqs <- colSums(upsetData)
+keepDiags <- names(diagFreqs[diagFreqs >= 3])
+upsetData <- upsetData[, keepDiags]
+
+cat("UpSet plot with", ncol(upsetData), "diagnoses (>=3 patients each)\n")
+
+# UpSetR requires a data.frame
+upset(as.data.frame(upsetData),
+  nsets = ncol(upsetData),
+  order.by = "freq",
+  main.bar.color = "steelblue",
+  sets.bar.color = "grey40",
+  text.scale = 1.2,
+  point.size = 2.5,
+  line.size = 1
+)
+
+# Save UpSet as PDF manually (base plot, not ggplot)
+pdf(file.path(plotDir, paste0(filenameSuffix, "_diagnosisUpset.pdf")),
+  width = 10, height = 6)
+upset(as.data.frame(upsetData),
+  nsets = ncol(upsetData),
+  order.by = "freq",
+  main.bar.color = "steelblue",
+  sets.bar.color = "grey40",
+  text.scale = 1.2,
+  point.size = 2.5,
+  line.size = 1
+)
+dev.off()
+
+
+## ----scoreDistributions, fig.width=10, fig.height=8---------------------------
+# === IBS-SSS ===
+ibsLong <- bgcc.df %>%
+  select(patientCode, preIBSSSS, postIBSSSS) %>%
+  pivot_longer(cols = c(preIBSSSS, postIBSSSS),
+    names_to = "timepoint", values_to = "IBSSSS") %>%
+  mutate(timepoint = ifelse(timepoint == "preIBSSSS", "Pre", "Post"),
+    timepoint = factor(timepoint, levels = c("Pre", "Post")))
+
+pIBS <- ggplot(ibsLong %>% filter(!is.na(IBSSSS)),
+  aes(x = timepoint, y = IBSSSS, fill = timepoint)) +
+  geom_violin(alpha = 0.3) +
+  geom_boxplot(width = 0.15, outlier.shape = NA) +
+  geom_hline(yintercept = c(75, 175, 300), linetype = "dashed",
+    color = c("green4", "goldenrod", "firebrick"), alpha = 0.6) +
+  scale_fill_manual(values = c(Pre = "steelblue", Post = "coral")) +
+  labs(x = NULL, y = "IBS-SSS Score",
+    title = "IBS Symptom Severity Score") +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  annotate("text", x = 2.4, y = c(75, 175, 300),
+    label = c("Remission", "Mild/Moderate", "Moderate/Severe"),
+    size = 2.5, color = c("green4", "goldenrod", "firebrick"), hjust = 1)
+
+# === PHQ-2 ===
+phqLong <- bgcc.df %>%
+  select(patientCode, prePHQ2, postPHQ2) %>%
+  pivot_longer(cols = c(prePHQ2, postPHQ2),
+    names_to = "timepoint", values_to = "PHQ2") %>%
+  mutate(timepoint = ifelse(timepoint == "prePHQ2", "Pre", "Post"),
+    timepoint = factor(timepoint, levels = c("Pre", "Post")))
+
+pPHQ <- ggplot(phqLong %>% filter(!is.na(PHQ2)),
+  aes(x = timepoint, y = PHQ2, fill = timepoint)) +
+  geom_violin(alpha = 0.3) +
+  geom_boxplot(width = 0.15, outlier.shape = NA) +
+  geom_hline(yintercept = 3, linetype = "dashed", color = "firebrick", alpha = 0.6) +
+  scale_fill_manual(values = c(Pre = "steelblue", Post = "coral")) +
+  labs(x = NULL, y = "PHQ-2 Score",
+    title = "PHQ-2 Depression Screen") +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  annotate("text", x = 2.3, y = 3.2,
+    label = "Positive Screen threshold", size = 2.5, color = "firebrick")
+
+# === GAD-7 ===
+gadLong <- bgcc.df %>%
+  select(patientCode, preGAD7, postGAD7) %>%
+  pivot_longer(cols = c(preGAD7, postGAD7),
+    names_to = "timepoint", values_to = "GAD7") %>%
+  mutate(timepoint = ifelse(timepoint == "preGAD7", "Pre", "Post"),
+    timepoint = factor(timepoint, levels = c("Pre", "Post")))
+
+pGAD <- ggplot(gadLong %>% filter(!is.na(GAD7)),
+  aes(x = timepoint, y = GAD7, fill = timepoint)) +
+  geom_violin(alpha = 0.3) +
+  geom_boxplot(width = 0.15, outlier.shape = NA) +
+  geom_hline(yintercept = c(5, 10, 15), linetype = "dashed",
+    color = c("goldenrod", "orange", "firebrick"), alpha = 0.6) +
+  scale_fill_manual(values = c(Pre = "steelblue", Post = "coral")) +
+  labs(x = NULL, y = "GAD-7 Score",
+    title = "GAD-7 Anxiety Score") +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  annotate("text", x = 2.4, y = c(5, 10, 15),
+    label = c("Mild", "Moderate", "Severe"),
+    size = 2.5, color = c("goldenrod", "orange", "firebrick"), hjust = 1)
+
+# Combine
+pScores <- pIBS + pPHQ + pGAD + plot_layout(ncol = 3)
+print(pScores)
+savePlot(pScores, plotDir, "scoreDistributions",
+  height = 5, width = 12)
+
+
+## ----spaghetti, fig.width=10, fig.height=5------------------------------------
+# Spaghetti (paired line) plots for pre/post
+pairedIBS <- bgcc.df %>%
+  filter(!is.na(preIBSSSS) & !is.na(postIBSSSS)) %>%
+  select(patientCode, preIBSSSS, postIBSSSS) %>%
+  pivot_longer(cols = c(preIBSSSS, postIBSSSS),
+    names_to = "timepoint", values_to = "score") %>%
+  mutate(timepoint = ifelse(timepoint == "preIBSSSS", "Pre", "Post"),
+    timepoint = factor(timepoint, levels = c("Pre", "Post")))
+
+ibsPval <- wilcox.test(bgcc.df$preIBSSSS[!is.na(bgcc.df$preIBSSSS) & !is.na(bgcc.df$postIBSSSS)],
+  bgcc.df$postIBSSSS[!is.na(bgcc.df$preIBSSSS) & !is.na(bgcc.df$postIBSSSS)],
+  paired = TRUE)$p.value
+
+pSpagIBS <- ggplot(pairedIBS, aes(x = timepoint, y = score, group = patientCode)) +
+  geom_line(alpha = 0.25, color = "grey50") +
+  geom_point(alpha = 0.3, size = 1) +
+  stat_summary(aes(group = 1), fun = mean, geom = "line",
+    color = "firebrick", linewidth = 1.5) +
+  stat_summary(aes(group = 1), fun = mean, geom = "point",
+    color = "firebrick", size = 3) +
+  geom_hline(yintercept = c(75, 175, 300), linetype = "dashed",
+    color = c("green4", "goldenrod", "firebrick"), alpha = 0.4) +
+  labs(x = NULL, y = "IBS-SSS",
+    title = sprintf("Paired IBS-SSS (n=%d)", sum(!is.na(bgcc.df$preIBSSSS) & !is.na(bgcc.df$postIBSSSS))),
+    subtitle = sprintf("Wilcoxon p = %.4f", ibsPval)) +
+  theme_minimal()
+
+pairedPHQ <- bgcc.df %>%
+  filter(!is.na(prePHQ2) & !is.na(postPHQ2)) %>%
+  select(patientCode, prePHQ2, postPHQ2) %>%
+  pivot_longer(cols = c(prePHQ2, postPHQ2),
+    names_to = "timepoint", values_to = "score") %>%
+  mutate(timepoint = ifelse(timepoint == "prePHQ2", "Pre", "Post"),
+    timepoint = factor(timepoint, levels = c("Pre", "Post")))
+
+phqPval <- wilcox.test(bgcc.df$prePHQ2[!is.na(bgcc.df$prePHQ2) & !is.na(bgcc.df$postPHQ2)],
+  bgcc.df$postPHQ2[!is.na(bgcc.df$prePHQ2) & !is.na(bgcc.df$postPHQ2)],
+  paired = TRUE)$p.value
+
+pSpagPHQ <- ggplot(pairedPHQ, aes(x = timepoint, y = score, group = patientCode)) +
+  geom_line(alpha = 0.15, color = "grey50") +
+  geom_point(alpha = 0.2, size = 1) +
+  stat_summary(aes(group = 1), fun = mean, geom = "line",
+    color = "firebrick", linewidth = 1.5) +
+  stat_summary(aes(group = 1), fun = mean, geom = "point",
+    color = "firebrick", size = 3) +
+  geom_hline(yintercept = 3, linetype = "dashed", color = "firebrick", alpha = 0.4) +
+  labs(x = NULL, y = "PHQ-2",
+    title = sprintf("Paired PHQ-2 (n=%d)", sum(!is.na(bgcc.df$prePHQ2) & !is.na(bgcc.df$postPHQ2))),
+    subtitle = sprintf("Wilcoxon p = %.4f", phqPval)) +
+  theme_minimal()
+
+pairedGAD <- bgcc.df %>%
+  filter(!is.na(preGAD7) & !is.na(postGAD7)) %>%
+  select(patientCode, preGAD7, postGAD7) %>%
+  pivot_longer(cols = c(preGAD7, postGAD7),
+    names_to = "timepoint", values_to = "score") %>%
+  mutate(timepoint = ifelse(timepoint == "preGAD7", "Pre", "Post"),
+    timepoint = factor(timepoint, levels = c("Pre", "Post")))
+
+gadPval <- wilcox.test(bgcc.df$preGAD7[!is.na(bgcc.df$preGAD7) & !is.na(bgcc.df$postGAD7)],
+  bgcc.df$postGAD7[!is.na(bgcc.df$preGAD7) & !is.na(bgcc.df$postGAD7)],
+  paired = TRUE)$p.value
+
+pSpagGAD <- ggplot(pairedGAD, aes(x = timepoint, y = score, group = patientCode)) +
+  geom_line(alpha = 0.15, color = "grey50") +
+  geom_point(alpha = 0.2, size = 1) +
+  stat_summary(aes(group = 1), fun = mean, geom = "line",
+    color = "firebrick", linewidth = 1.5) +
+  stat_summary(aes(group = 1), fun = mean, geom = "point",
+    color = "firebrick", size = 3) +
+  geom_hline(yintercept = c(5, 10, 15), linetype = "dashed",
+    color = c("goldenrod", "orange", "firebrick"), alpha = 0.4) +
+  labs(x = NULL, y = "GAD-7",
+    title = sprintf("Paired GAD-7 (n=%d)", sum(!is.na(bgcc.df$preGAD7) & !is.na(bgcc.df$postGAD7))),
+    subtitle = sprintf("Wilcoxon p = %.4f", gadPval)) +
+  theme_minimal()
+
+pSpaghetti <- pSpagIBS + pSpagPHQ + pSpagGAD + plot_layout(ncol = 3)
+print(pSpaghetti)
+savePlot(pSpaghetti, plotDir, "pairedSpaghetti",
+  height = 5, width = 12)
+
+
+## ----utilizationDistributions, fig.width=10, fig.height=5---------------------
+# Healthcare utilization pre vs post
+utilCols <- c("OfficeVisits", "PortalMessages", "ERVisits")
+utilLabels <- c("Office Visits", "Portal Messages", "ER Visits")
+
+utilPlots <- list()
+for (i in seq_along(utilCols)) {
+  preName <- paste0("pre", utilCols[i])
+  postName <- paste0("post", utilCols[i])
+
+  utilLong <- bgcc.df %>%
+    select(patientCode, !!sym(preName), !!sym(postName)) %>%
+    pivot_longer(cols = c(!!sym(preName), !!sym(postName)),
+      names_to = "timepoint", values_to = "count") %>%
+    mutate(
+      timepoint = ifelse(grepl("^pre", timepoint), "Pre", "Post"),
+      timepoint = factor(timepoint, levels = c("Pre", "Post"))
+    )
+
+  nPaired <- sum(!is.na(bgcc.df[[preName]]) & !is.na(bgcc.df[[postName]]))
+
+  utilPlots[[i]] <- ggplot(utilLong %>% filter(!is.na(count)),
+    aes(x = timepoint, y = count, fill = timepoint)) +
+    geom_violin(alpha = 0.3) +
+    geom_boxplot(width = 0.15, outlier.shape = NA) +
+    scale_fill_manual(values = c(Pre = "steelblue", Post = "coral")) +
+    labs(x = NULL, y = "Count",
+      title = sprintf("%s (n paired=%d)", utilLabels[i], nPaired)) +
+    theme_minimal() +
+    theme(legend.position = "none")
+}
+
+pUtil <- utilPlots[[1]] + utilPlots[[2]] + utilPlots[[3]] + plot_layout(ncol = 3)
+print(pUtil)
+savePlot(pUtil, plotDir, "utilizationDistributions",
+  height = 5, width = 12)
+
+
+## ----manuscriptSummary--------------------------------------------------------
+cat("=== Key Summary Statistics for Manuscript ===\n\n")
+
+# Total cohort
+cat("Total enrolled:", nrow(bgcc.df), "\n")
+cat("Class date range:", as.character(range(bgcc.df$classDate, na.rm = TRUE)), "\n")
+cat("Unique class sessions:", length(unique(bgcc.df$classDate)), "\n")
+cat("Patients per class: median =", median(classDateCounts$n),
+  ", range = [", min(classDateCounts$n), ",", max(classDateCounts$n), "]\n\n")
+
+# Demographics
+cat("Age: mean =", round(mean(bgcc.df$age, na.rm = TRUE), 1),
+  " (SD =", round(sd(bgcc.df$age, na.rm = TRUE), 1), ")\n")
+nFemale <- sum(bgcc.df$sex == "F", na.rm = TRUE)
+cat("Female:", nFemale, sprintf("(%.1f%%)\n", 100 * nFemale / nrow(bgcc.df)))
+cat("Diagnoses per patient: median =", median(bgcc.df$nDiagnoses, na.rm = TRUE),
+  ", mean =", round(mean(bgcc.df$nDiagnoses, na.rm = TRUE), 1), "\n\n")
+
+# Baseline clinical scores (only for those with data)
+for (col in c("preIBSSSS", "prePHQ2", "preGAD7")) {
+  vals <- bgcc.df[[col]][!is.na(bgcc.df[[col]])]
+  cat(sprintf("%s (n=%d): mean=%.1f (SD=%.1f), median=%.1f [%g, %g]\n",
+    col, length(vals), mean(vals), sd(vals), median(vals), min(vals), max(vals)))
+}
+
+cat("\n")
+# Paired sample sizes
+cat("Paired analytic samples:\n")
+cat("  IBS-SSS:", sum(!is.na(bgcc.df$preIBSSSS) & !is.na(bgcc.df$postIBSSSS)), "\n")
+cat("  PHQ-2:", sum(!is.na(bgcc.df$prePHQ2) & !is.na(bgcc.df$postPHQ2)), "\n")
+cat("  GAD-7:", sum(!is.na(bgcc.df$preGAD7) & !is.na(bgcc.df$postGAD7)), "\n")
+cat("  Survey respondents:", sum(bgcc.df$respondedToSurvey), "\n")
+

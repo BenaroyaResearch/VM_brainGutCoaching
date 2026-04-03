@@ -1,0 +1,18 @@
+# Run VMBGCC_outcomes.Rmd
+# Usage: Rscript code/run_outcomes.R
+# Depends on: run_cleaning.R (produces clean RDS files)
+
+baseDir <- "/Users/tedwards/Documents/projects/VM_brainGutCoaching"
+setwd(baseDir)
+
+# Ensure clean data exists — run cleaning if needed
+dataDate <- "2026-03-19"
+filenameSuffix <- paste0("VMBGCC.", dataDate)
+dataOutputDir <- file.path(baseDir, "data/outputData")
+if (!file.exists(file.path(dataOutputDir, paste0(filenameSuffix, "_bgccClean.rds")))) {
+  cat("Clean data not found — running cleaning first...\n")
+  source("code/run_cleaning.R")
+}
+
+knitr::purl("code/VMBGCC_outcomes.Rmd", output = "code/VMBGCC_outcomes.R", quiet = TRUE)
+source("code/VMBGCC_outcomes.R")

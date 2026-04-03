@@ -1,0 +1,568 @@
+---
+title: "VMBGCC Brain-Gut Coaching Class: Data Cleaning"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, echo=FALSE, message=FALSE, warning=FALSE}
+library(knitr)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+library(openxlsx)
+library(forcats)
+library(readr)
+
+opts_chunk$set(
+  fig.width = 6, fig.height = 4, cache = FALSE,
+  echo = FALSE, warning = FALSE, message = FALSE,
+  results = "markup"
+)
+
+options(stringsAsFactors = FALSE)
+
+baseDir <- "/Users/tedwards/Documents/projects/VM_brainGutCoaching"
+setwd(baseDir)
+
+dataInputDir <- file.path(baseDir, "data/inputData")
+dataOutputDir <- file.path(baseDir, "data/outputData")
+plotDir <- file.path(baseDir, "figures")
+dataDate <- "2026-03-19"
+filenameSuffix <- paste0("VMBGCC.", dataDate)
+
+source(file.path(baseDir, "code/VMBGCC_functions.R"))
+```
+
+# 1. Read raw data
+
+```{r readSheet1}
+excelFile <- file.path(dataInputDir, "BGCC Data Sheet 031626.xlsx")
+
+# Row 1 is a merged header row (mostly empty); real headers are in row 2.
+# Read without column names, then manually assign from row 2.
+raw.df <- read.xlsx(excelFile, sheet = 1, colNames = FALSE, startRow = 1)
+
+# Extract real column names from row 2 (which is row 1 after read, since
+# openxlsx with colNames=FALSE reads everything as data)
+# Row 1 = merged header junk, Row 2 = actual headers, Row 3+ = data
+rawHeaders <- as.character(raw.df[2, ])
+raw.df <- raw.df[3:nrow(raw.df), ]
+
+cat("Raw dimensions:", nrow(raw.df), "rows x", ncol(raw.df), "cols\n")
+cat("Raw headers from Excel row 2:\n")
+cat(paste(seq_along(rawHeaders), rawHeaders, sep = ": "), sep = "\n")
+```
+
+```{r assignCleanColnames}
+# Assign clean camelCase column names
+cleanColNames <- c(
+  "patientCode",          #  1 Patient Code #
+  "classDate",            #  2 Class Date
+  "referringProvider",    #  3 Referring Provider
+  "age",                  #  4 Age at Time of Class
+  "sex",                  #  5 Sex
+  "dbgiDiagnoses",        #  6 DBGI Diagnos(es)
+  "preOfficeVisits",      #  7 Pre-class Number of DBGI-related Office Visits
+  "prePortalMessages",    #  8 Pre-class Number of DBGI-related Portal Messages
+  "preTestsOrdered",      #  9 Pre-class Number of DBGI-related Tests Ordered
+  "preERVisits",          # 10 Pre-class Number of DBGI-related ER visits
+  "prePHQ2",              # 11 Pre-class PHQ-2 Score
+  "preGAD7",              # 12 Pre-class GAD-7 Score
+  "preIBSSSS",            # 13 Pre-class IBS Symptom Severity Score
+  "postIBSSSS",           # 14 Post-class IBS Symptom Severity Score
+  "deltaIBSSSS_raw",      # 15 Change in Symptom Severity Score (physician-computed)
+  "postOfficeVisits",     # 16 Post-class Number of DBGI-related Office Visits
+  "postPortalMessages",   # 17 Post-class Number of DBGI-related Portal Messages
+  "postTestsOrdered",     # 18 Post-class Numer of DBGI-related Tests Ordered
+  "postERVisits",         # 19 Post-class Number of DBGI-related ER visits
+  "postPHQ2",             # 20 Post-class PHQ-2 Score
+  "postGAD7",             # 21 Post-class GAD-7 Score
+  "microGoals",           # 22 Micro-goals
+  "goalFollowUp",         # 23 Goal Follow up
+  "brainGutGamePlan",     # 24 Brain Gut Game Plan
+  "surveyLiked",          # 25 What you liked
+  "surveyImprovements",   # 26 Class Improvements
+  "initialCodeLiked",     # 27 Initial Code- Liked
+  "initialCodeImprove",   # 28 Initial Code- Improve
+  "axialCodeLiked",       # 29 Axial Code- Liked
+  "axialCodeImprove",     # 30 Axial Code- Improve
+  "selectiveCoding"       # 31 Selective Coding
+)
+
+colnames(raw.df) <- cleanColNames
+```
+
+# 2. Type conversions
+
+```{r convertTypes}
+bgcc.df <- raw.df
+
+# --- Patient code: keep as character ---
+bgcc.df$patientCode <- trimws(as.character(bgcc.df$patientCode))
+
+# --- Date conversion from Excel serial numbers ---
+bgcc.df$classDate <- excelDateToR(bgcc.df$classDate)
+
+# --- Factor columns ---
+bgcc.df$sex <- factor(trimws(bgcc.df$sex))
+bgcc.df$referringProvider <- factor(trimws(bgcc.df$referringProvider))
+
+# --- Age: numeric ---
+bgcc.df$age <- toNumericSafe(bgcc.df$age)
+
+# --- Clinical scores: numeric, converting "Unknown"/"Unkown"/"Uknown" to NA ---
+scoreCols <- c(
+  "prePHQ2", "preGAD7", "preIBSSSS", "postIBSSSS", "deltaIBSSSS_raw",
+  "postPHQ2", "postGAD7"
+)
+for (col in scoreCols) {
+  bgcc.df[[col]] <- toNumericSafe(bgcc.df[[col]])
+}
+
+# --- Utilization counts: numeric ---
+utilizationCols <- c(
+  "preOfficeVisits", "prePortalMessages", "preTestsOrdered", "preERVisits",
+  "postOfficeVisits", "postPortalMessages", "postTestsOrdered", "postERVisits"
+)
+for (col in utilizationCols) {
+  bgcc.df[[col]] <- toNumericSafe(bgcc.df[[col]])
+}
+
+# --- Trim free-text columns ---
+textCols <- c(
+  "dbgiDiagnoses", "microGoals", "goalFollowUp", "brainGutGamePlan",
+  "surveyLiked", "surveyImprovements",
+  "initialCodeLiked", "initialCodeImprove",
+  "axialCodeLiked", "axialCodeImprove"
+)
+for (col in textCols) {
+  bgcc.df[[col]] <- trimws(as.character(bgcc.df[[col]]))
+  bgcc.df[[col]][bgcc.df[[col]] == ""] <- NA
+}
+
+# --- Drop selectiveCoding (entirely NA) ---
+bgcc.df$selectiveCoding <- NULL
+
+cat("After type conversion:", nrow(bgcc.df), "rows x", ncol(bgcc.df), "cols\n")
+```
+
+```{r validateBasics}
+# Sanity checks
+cat("Unique patients:", length(unique(bgcc.df$patientCode)), "\n")
+cat("Any duplicate patient codes:", any(duplicated(bgcc.df$patientCode)), "\n")
+cat("Date range:", as.character(range(bgcc.df$classDate, na.rm = TRUE)), "\n")
+cat("Age range:", range(bgcc.df$age, na.rm = TRUE), "\n")
+cat("Sex distribution:\n")
+print(table(bgcc.df$sex, useNA = "always"))
+```
+
+# 3. Compute derived variables
+
+```{r computeDerived}
+# Recompute delta scores from source (don't trust pre-computed)
+bgcc.df$deltaIBSSSS <- bgcc.df$postIBSSSS - bgcc.df$preIBSSSS
+bgcc.df$deltaPHQ2 <- bgcc.df$postPHQ2 - bgcc.df$prePHQ2
+bgcc.df$deltaGAD7 <- bgcc.df$postGAD7 - bgcc.df$preGAD7
+
+# Healthcare utilization deltas
+bgcc.df$deltaOfficeVisits <- bgcc.df$postOfficeVisits - bgcc.df$preOfficeVisits
+bgcc.df$deltaPortalMessages <- bgcc.df$postPortalMessages - bgcc.df$prePortalMessages
+bgcc.df$deltaERVisits <- bgcc.df$postERVisits - bgcc.df$preERVisits
+
+# Severity bands
+bgcc.df$preIBSSSSBand <- ibsSSSBand(bgcc.df$preIBSSSS)
+bgcc.df$postIBSSSSBand <- ibsSSSBand(bgcc.df$postIBSSSS)
+bgcc.df$preGAD7Band <- gad7Band(bgcc.df$preGAD7)
+bgcc.df$postGAD7Band <- gad7Band(bgcc.df$postGAD7)
+bgcc.df$prePHQ2Screen <- phq2Screen(bgcc.df$prePHQ2)
+bgcc.df$postPHQ2Screen <- phq2Screen(bgcc.df$postPHQ2)
+
+# Class month for temporal grouping
+bgcc.df$classMonth <- format(bgcc.df$classDate, "%Y-%m")
+
+# Survey response flag
+bgcc.df$respondedToSurvey <- !(
+  is.na(bgcc.df$surveyLiked) |
+    tolower(bgcc.df$surveyLiked) == "did not respond"
+)
+
+# Count of diagnoses per patient (from free-text)
+bgcc.df$nDiagnoses <- sapply(bgcc.df$dbgiDiagnoses, function(x) {
+  if (is.na(x)) return(NA_integer_)
+  parts <- trimws(unlist(strsplit(x, ",")))
+  parts <- parts[parts != ""]
+  length(parts)
+})
+
+cat("Derived variables added. Final dimensions:", nrow(bgcc.df), "x", ncol(bgcc.df), "\n")
+```
+
+# 4. Parse and validate DBGI diagnoses
+
+```{r parseDiagnoses}
+# Read the one-hot diagnosis matrix from Sheet 7
+diagOneHot.df <- read.xlsx(excelFile, sheet = 7, colNames = TRUE)
+
+# Clean column names
+diagColNames <- c(
+  "dbgiDiagnoses",
+  "IBS_C", "IBS_D", "IBS_M",
+  "chronicIdiopathicConstipation", "functionalConstipation",
+  "functionalDiarrhea", "cmAbdominalPainSyndrome",
+  "functionalAbdominalPain", "functionalDyspepsia",
+  "functionalBloating", "cyclicVomiting",
+  "ruminationSyndrome", "idiopathicGastroparesis",
+  "opioidInducedConstipation", "cannabinoidHyperemesis",
+  "functionalHeartburn", "functionalNeurologicSyndrome"
+)
+colnames(diagOneHot.df) <- diagColNames
+
+# Convert 1/NA to 1/0 for the one-hot columns
+oneHotCols <- diagColNames[-1]
+for (col in oneHotCols) {
+  diagOneHot.df[[col]] <- ifelse(is.na(diagOneHot.df[[col]]), 0L, 1L)
+}
+
+# Sheet 7 has 199 rows — check if the last rows are the single-diagnosis labels
+# (the last ~17 rows appear to be one row per diagnosis category)
+cat("Sheet 7 rows:", nrow(diagOneHot.df), "\n")
+cat("Last 20 diagnosis strings:\n")
+print(tail(diagOneHot.df$dbgiDiagnoses, 20))
+```
+
+```{r matchDiagnosesToPatients}
+# Sheet 7 has rows that are individual diagnosis category names at the bottom
+# (e.g., "IBS-C", "IBS-D"). These are the diagnosis labels for the ad-hoc
+# pie chart, not patient data. Filter to rows that match patient diagnosis combos.
+
+# The main patient table has 183 patients. Sheet 7 likely has those 183 patient
+# diagnosis rows plus some individual-diagnosis rows and maybe blank rows.
+# Strategy: match by diagnosis string to the main table.
+
+# Normalize diagnosis strings: trim whitespace, strip trailing commas,
+# standardize case for matching
+normalizeDiag <- function(x) {
+  x <- trimws(as.character(x))
+  x <- sub(",\\s*$", "", x)  # strip trailing comma
+  x <- trimws(x)
+  x
+}
+
+bgcc.df$dbgiDiagnosesNorm <- normalizeDiag(bgcc.df$dbgiDiagnoses)
+diagOneHot.df$dbgiDiagnosesNorm <- normalizeDiag(diagOneHot.df$dbgiDiagnoses)
+
+patientDiagStrings <- bgcc.df$dbgiDiagnosesNorm[!is.na(bgcc.df$dbgiDiagnosesNorm)]
+
+# Identify rows in Sheet 7 that match a patient diagnosis string
+diagOneHot.df$isPatientRow <- diagOneHot.df$dbgiDiagnosesNorm %in% patientDiagStrings
+
+cat("\nSheet 7 patient rows:", sum(diagOneHot.df$isPatientRow), "\n")
+cat("Sheet 7 non-patient rows:", sum(!diagOneHot.df$isPatientRow), "\n")
+cat("Non-patient diagnosis strings:\n")
+print(diagOneHot.df$dbgiDiagnoses[!diagOneHot.df$isPatientRow])
+```
+
+```{r buildCleanDiagMatrix}
+# Keep only patient-matching rows from the one-hot matrix
+# Note: diagnosis strings may repeat (multiple patients have "IBS-C").
+# We need a UNIQUE row per diagnosis combination, then join to patients.
+
+diagUniqueOneHot.df <- diagOneHot.df %>%
+  filter(isPatientRow) %>%
+  select(-isPatientRow) %>%
+  distinct(dbgiDiagnosesNorm, .keep_all = TRUE)
+
+cat("Unique diagnosis combinations:", nrow(diagUniqueOneHot.df), "\n")
+
+# Join to main patient table on normalized diagnosis string
+bgcc.df <- bgcc.df %>%
+  left_join(diagUniqueOneHot.df %>% select(-dbgiDiagnoses), by = "dbgiDiagnosesNorm")
+
+# Check join completeness
+nMissingDiag <- sum(is.na(bgcc.df$IBS_C) & !is.na(bgcc.df$dbgiDiagnoses))
+cat("Patients with diagnosis text but no one-hot match:", nMissingDiag, "\n")
+
+if (nMissingDiag > 0) {
+  unmatched <- bgcc.df %>%
+    filter(is.na(IBS_C) & !is.na(dbgiDiagnoses)) %>%
+    select(patientCode, dbgiDiagnoses, dbgiDiagnosesNorm)
+  cat("Unmatched diagnosis strings:\n")
+  print(unmatched)
+
+  # Manual fix: "Functional Dyspepsia, Gastroparesis" — the free-text says
+  # "Gastroparesis" but Sheet 7 uses "Idiopathic Gastroparesis".
+  idx7588130 <- which(bgcc.df$patientCode == "7588130")
+  if (length(idx7588130) == 1 && is.na(bgcc.df$IBS_C[idx7588130])) {
+    bgcc.df[idx7588130, oneHotCols] <- 0L
+    bgcc.df$functionalDyspepsia[idx7588130] <- 1L
+    bgcc.df$idiopathicGastroparesis[idx7588130] <- 1L
+    cat("Manually coded patient 7588130: functionalDyspepsia=1, idiopathicGastroparesis=1\n")
+  }
+  nMissingDiag <- sum(is.na(bgcc.df$IBS_C) & !is.na(bgcc.df$dbgiDiagnoses))
+  cat("Remaining unmatched after manual fix:", nMissingDiag, "\n")
+}
+```
+
+```{r validateDiagnosisOneHot}
+# Cross-validate: for each patient, the sum of one-hot columns should equal nDiagnoses
+bgcc.df$nDiagnosesOneHot <- rowSums(bgcc.df[, oneHotCols], na.rm = TRUE)
+
+mismatch <- bgcc.df %>%
+  filter(!is.na(dbgiDiagnoses)) %>%
+  filter(nDiagnoses != nDiagnosesOneHot)
+
+if (nrow(mismatch) > 0) {
+  cat("WARNING:", nrow(mismatch), "patients with diagnosis count mismatch:\n")
+  print(mismatch %>% select(patientCode, dbgiDiagnoses, nDiagnoses, nDiagnosesOneHot))
+} else {
+  cat("All diagnosis counts match between free-text and one-hot matrix.\n")
+}
+```
+
+# 5. Reconcile with Stats sheet
+
+```{r reconcileStats}
+# Read Stats sheet (Sheet 6). It has 208 rows total (1 header + 184 patients + summary rows).
+statsRaw.df <- read.xlsx(excelFile, sheet = 6, colNames = FALSE, startRow = 1)
+
+# Real headers are in row 2 (same as Sheet1); patient data in rows 3–186.
+# Identify patient rows: those with non-NA patient codes (col 1)
+statsPatientRows <- which(!is.na(statsRaw.df[, 1]) & statsRaw.df[, 1] != "Patient Code #")
+# Exclude the header row which is row 2
+statsPatientRows <- statsPatientRows[statsPatientRows >= 3]
+
+cat("Stats sheet patient rows:", length(statsPatientRows), "\n")
+cat("Sheet1 patient rows:", nrow(bgcc.df), "\n")
+
+# Check if Stats has 2 extra patients vs Sheet1
+statsCodes <- trimws(as.character(statsRaw.df[statsPatientRows, 1]))
+sheet1Codes <- bgcc.df$patientCode
+
+extraInStats <- setdiff(statsCodes, sheet1Codes)
+extraInSheet1 <- setdiff(sheet1Codes, statsCodes)
+
+if (length(extraInStats) > 0) {
+  cat("Patient codes in Stats but not Sheet1:", paste(extraInStats, collapse = ", "), "\n")
+}
+if (length(extraInSheet1) > 0) {
+  cat("Patient codes in Sheet1 but not Stats:", paste(extraInSheet1, collapse = ", "), "\n")
+}
+
+# Check if Stats has different utilization data (cols 7-8 look different in Stats)
+# Stats may have NAs where Sheet1 has values — or vice versa. Compare.
+cat("\nSheet1 preOfficeVisits NAs:", sum(is.na(bgcc.df$preOfficeVisits)), "\n")
+
+# Read Stats utilization columns for the matching patients to compare
+statsUtil <- statsRaw.df[statsPatientRows, c(1, 7, 8, 10, 16, 17, 19)]
+colnames(statsUtil) <- c("patientCode", "statsPreOffice", "statsPrePortal",
+  "statsPreER", "statsPostOffice", "statsPostPortal", "statsPostER")
+statsUtil$patientCode <- trimws(as.character(statsUtil$patientCode))
+for (col in colnames(statsUtil)[-1]) {
+  statsUtil[[col]] <- toNumericSafe(statsUtil[[col]])
+}
+
+cat("Stats preOfficeVisits NAs:", sum(is.na(statsUtil$statsPreOffice)), "\n")
+
+# If Stats has MORE missing utilization data, Sheet1 is the better source.
+# If Stats has LESS, we should prefer those values.
+# For now, stick with Sheet1 as primary (as planned).
+```
+
+# 6. Thematic coding from Consensus Review
+
+```{r readConsensusReview}
+# Read Consensus Review (Sheet 4)
+consRaw.df <- read.xlsx(excelFile, sheet = 4, colNames = FALSE, startRow = 1)
+
+# Row 1 is merged header row, row 2 is sub-headers, row 3+ is data
+# Inspect structure
+cat("Consensus Review raw dimensions:", nrow(consRaw.df), "x", ncol(consRaw.df), "\n")
+
+# The structure from inspection:
+# [1] "What you liked" survey text
+# [2] "Initial Code- Liked"
+# [3] "Sub-Themes"
+# [4-6] Overall Themes: "Positive Shared Experience", "Educational Environment...", "Patient Activation"
+# [7-12] Subthemes 1: Isolation Reduced, Validation, Shared community,
+#        Change from neg healthcare experiences, Gratitude, Enjoyment/Positive Experience
+# [13-15] Subthemes 2: Content, Teaching/Coaching style, Coaching structure
+# [16-18] Subthemes 3: Self-Efficacy, Agency Knowledge/skills, Agency (actionable tools)
+
+# Row 2 has the sub-column headers
+subHeaders <- as.character(consRaw.df[2, ])
+cat("Consensus Review sub-headers:\n")
+for (j in 1:ncol(consRaw.df)) cat(sprintf("  [%2d] %s\n", j, subHeaders[j]))
+```
+
+```{r cleanConsensusReview}
+# Extract data rows (row 3 onward)
+consData.df <- consRaw.df[3:nrow(consRaw.df), ]
+
+# Assign clean column names
+consColNames <- c(
+  "surveyLiked",                  # 1
+  "initialCodeLiked",             # 2
+  "subThemes",                    # 3
+  "themePositiveSharedExperience", # 4
+  "themePatientEmpowerment",      # 5
+  "themePatientActivation",       # 6
+  "subIsolationReduced",          # 7
+  "subValidation",                # 8
+  "subSharedCommunity",           # 9
+  "subChangeNegHealthcare",       # 10
+  "subGratitude",                 # 11
+  "subEnjoymentPositive",         # 12
+  "subContent",                   # 13
+  "subTeachingCoachingStyle",     # 14
+  "subCoachingStructure",         # 15
+  "subSelfEfficacy",              # 16
+  "subAgencyKnowledgeSkills",     # 17
+  "subAgencyActionableTools"      # 18
+)
+colnames(consData.df) <- consColNames
+
+# Convert binary theme/subtheme columns: "1" -> 1, NA or anything else -> 0
+binaryThemeCols <- consColNames[4:18]
+for (col in binaryThemeCols) {
+  vals <- trimws(as.character(consData.df[[col]]))
+  consData.df[[col]] <- ifelse(!is.na(vals) & vals == "1", 1L, 0L)
+}
+
+# Trim text columns
+for (col in consColNames[1:3]) {
+  consData.df[[col]] <- trimws(as.character(consData.df[[col]]))
+  consData.df[[col]][consData.df[[col]] == ""] <- NA
+  consData.df[[col]][consData.df[[col]] == "NA"] <- NA
+}
+
+# The Consensus Review doesn't have patient codes directly.
+# It has the same row order as Sheet1 (183 patients).
+# Add patient codes from the main table.
+if (nrow(consData.df) >= nrow(bgcc.df)) {
+  consData.df <- consData.df[1:nrow(bgcc.df), ]
+  consData.df$patientCode <- bgcc.df$patientCode
+} else {
+  cat("WARNING: Consensus Review has fewer rows than main table.\n")
+  consData.df$patientCode <- bgcc.df$patientCode[1:nrow(consData.df)]
+}
+
+cat("Consensus Review cleaned:", nrow(consData.df), "rows\n")
+cat("Patients with >=1 theme coded:",
+  sum(rowSums(consData.df[, binaryThemeCols]) > 0), "\n")
+
+cat("\nTheme prevalence:\n")
+for (col in binaryThemeCols) {
+  cat(sprintf("  %-35s: %d (%.1f%%)\n",
+    col, sum(consData.df[[col]]),
+    100 * mean(consData.df[[col]])))
+}
+```
+
+# 7. Check pre/post Tests Ordered columns
+
+```{r checkTestsOrdered}
+cat("preTestsOrdered NAs:", sum(is.na(bgcc.df$preTestsOrdered)), "of", nrow(bgcc.df), "\n")
+cat("postTestsOrdered NAs:", sum(is.na(bgcc.df$postTestsOrdered)), "of", nrow(bgcc.df), "\n")
+
+# Drop if essentially all NA
+if (sum(!is.na(bgcc.df$preTestsOrdered)) < 5) {
+  bgcc.df$preTestsOrdered <- NULL
+  cat("Dropped preTestsOrdered (nearly all NA)\n")
+}
+if (sum(!is.na(bgcc.df$postTestsOrdered)) < 5) {
+  bgcc.df$postTestsOrdered <- NULL
+  cat("Dropped postTestsOrdered (nearly all NA)\n")
+}
+```
+
+# 8. Missingness summary
+
+```{r missingSummary, results="markup"}
+# Count missing values per column
+missingReport.df <- data.frame(
+  variable = colnames(bgcc.df),
+  nMissing = sapply(bgcc.df, function(x) sum(is.na(x))),
+  pctMissing = sapply(bgcc.df, function(x) round(100 * mean(is.na(x)), 1)),
+  stringsAsFactors = FALSE
+)
+missingReport.df <- missingReport.df %>% arrange(desc(pctMissing))
+
+cat("=== Missingness Report ===\n")
+print(missingReport.df %>% filter(pctMissing > 0), row.names = FALSE)
+
+# Key analytic sample sizes
+cat("\n=== Analytic sample sizes ===\n")
+cat("Total patients:", nrow(bgcc.df), "\n")
+cat("Pre IBS-SSS available:", sum(!is.na(bgcc.df$preIBSSSS)), "\n")
+cat("Post IBS-SSS available:", sum(!is.na(bgcc.df$postIBSSSS)), "\n")
+cat("Paired IBS-SSS (both pre & post):",
+  sum(!is.na(bgcc.df$preIBSSSS) & !is.na(bgcc.df$postIBSSSS)), "\n")
+cat("Pre PHQ-2 available:", sum(!is.na(bgcc.df$prePHQ2)), "\n")
+cat("Post PHQ-2 available:", sum(!is.na(bgcc.df$postPHQ2)), "\n")
+cat("Paired PHQ-2:", sum(!is.na(bgcc.df$prePHQ2) & !is.na(bgcc.df$postPHQ2)), "\n")
+cat("Pre GAD-7 available:", sum(!is.na(bgcc.df$preGAD7)), "\n")
+cat("Post GAD-7 available:", sum(!is.na(bgcc.df$postGAD7)), "\n")
+cat("Paired GAD-7:", sum(!is.na(bgcc.df$preGAD7) & !is.na(bgcc.df$postGAD7)), "\n")
+cat("Survey respondents:", sum(bgcc.df$respondedToSurvey), "\n")
+```
+
+# 9. Export clean data
+
+```{r exportCleanData}
+# Ensure output directory exists
+if (!dir.exists(dataOutputDir)) dir.create(dataOutputDir, recursive = TRUE)
+
+# Main patient table
+saveRDS(bgcc.df,
+  file.path(dataOutputDir, paste0(filenameSuffix, "_bgccClean.rds")))
+write.csv(bgcc.df,
+  file.path(dataOutputDir, paste0(filenameSuffix, "_bgccClean.csv")),
+  row.names = FALSE)
+
+# Thematic coding table
+saveRDS(consData.df,
+  file.path(dataOutputDir, paste0(filenameSuffix, "_thematicCoding.rds")))
+write.csv(consData.df,
+  file.path(dataOutputDir, paste0(filenameSuffix, "_thematicCoding.csv")),
+  row.names = FALSE)
+
+# Diagnosis one-hot matrix (unique combos only)
+saveRDS(diagUniqueOneHot.df,
+  file.path(dataOutputDir, paste0(filenameSuffix, "_diagnosisOneHot.rds")))
+
+cat("Clean data exported to:", dataOutputDir, "\n")
+cat("Files:\n")
+cat("  ", paste0(filenameSuffix, "_bgccClean.rds/.csv"), "\n")
+cat("  ", paste0(filenameSuffix, "_thematicCoding.rds/.csv"), "\n")
+cat("  ", paste0(filenameSuffix, "_diagnosisOneHot.rds"), "\n")
+```
+
+# 10. Data structure summary
+
+```{r finalSummary, results="markup"}
+cat("=== Final clean dataset ===\n")
+cat("Dimensions:", nrow(bgcc.df), "patients x", ncol(bgcc.df), "variables\n\n")
+
+cat("--- Variable types ---\n")
+for (col in colnames(bgcc.df)) {
+  cat(sprintf("  %-30s: %s\n", col, class(bgcc.df[[col]])[1]))
+}
+
+cat("\n--- Class dates ---\n")
+cat("Range:", as.character(range(bgcc.df$classDate, na.rm = TRUE)), "\n")
+cat("Unique class dates:", length(unique(bgcc.df$classDate)), "\n")
+
+cat("\n--- Score ranges (non-missing) ---\n")
+for (col in c("preIBSSSS", "postIBSSSS", "prePHQ2", "postPHQ2", "preGAD7", "postGAD7")) {
+  vals <- bgcc.df[[col]][!is.na(bgcc.df[[col]])]
+  if (length(vals) > 0) {
+    cat(sprintf("  %-15s: n=%d, range=[%g, %g], mean=%.1f, median=%.1f\n",
+      col, length(vals), min(vals), max(vals), mean(vals), median(vals)))
+  }
+}
+```
