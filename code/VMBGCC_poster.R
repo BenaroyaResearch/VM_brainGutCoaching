@@ -1,0 +1,802 @@
+## ----setup, include=FALSE-----------------------------------------------------
+library(knitr)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+library(scales)
+library(patchwork)
+library(ggalluvial)
+library(effectsize)
+library(boot)
+
+opts_chunk$set(
+  fig.width = 10, fig.height = 7, cache = FALSE,
+  echo = FALSE, warning = FALSE, message = FALSE,
+  results = "markup"
+)
+options(stringsAsFactors = FALSE)
+
+baseDir <- "/Users/tedwards/Documents/projects/VM_brainGutCoaching"
+setwd(baseDir)
+
+dataOutputDir <- file.path(baseDir, "data/outputData")
+plotDir <- file.path(baseDir, "figures")
+dataDate <- "2026-03-19"
+filenameSuffix <- paste0("VMBGCC.", dataDate)
+
+source(file.path(baseDir, "code/VMBGCC_functions.R"))
+
+bgcc.df <- readRDS(file.path(dataOutputDir, paste0(filenameSuffix, "_bgccClean.rds")))
+thematic.df <- readRDS(file.path(dataOutputDir, paste0(filenameSuffix, "_thematicCoding.rds")))
+
+cat("Loaded:", nrow(bgcc.df), "patients,", nrow(thematic.df), "thematic rows\n")
+
+# ---- Poster colour palette and ggplot theme ----
+posterColors <- list(
+  pre = "#4477AA",
+  post = "#EE6677",
+  mainTheme = "#228833",
+  subTheme = "#CCBB44",
+  severity = c(
+    "Remission" = "#228833", "Mild" = "#CCBB44",
+    "Moderate" = "#EE6677", "Severe" = "#AA3377"
+  ),
+  themeGroup = c(
+    "Positive Shared Experience" = "#4477AA",
+    "Patient Empowerment" = "#228833",
+    "Patient Activation" = "#EE6677"
+  )
+)
+
+theme_poster <- function(base_size = 14) {
+  theme_minimal(base_size = base_size) %+replace%
+    theme(
+      plot.title = element_text(size = base_size + 4, face = "bold", hjust = 0),
+      plot.subtitle = element_text(size = base_size, hjust = 0, color = "grey30"),
+      axis.title = element_text(size = base_size, face = "bold"),
+      axis.text = element_text(size = base_size - 1),
+      legend.title = element_text(size = base_size - 1, face = "bold"),
+      legend.text = element_text(size = base_size - 2),
+      panel.grid.minor = element_blank(),
+      strip.text = element_text(size = base_size, face = "bold")
+    )
+}
+
+# ---- Theme vectors and labels ----
+mainThemes <- c("themePositiveSharedExperience", "themePatientEmpowerment",
+  "themePatientActivation")
+subThemes <- c("subIsolationReduced", "subValidation", "subSharedCommunity",
+  "subChangeNegHealthcare", "subGratitude", "subEnjoymentPositive",
+  "subContent", "subTeachingCoachingStyle", "subCoachingStructure",
+  "subSelfEfficacy", "subAgencyKnowledgeSkills", "subAgencyActionableTools")
+allThemes <- c(mainThemes, subThemes)
+
+themeLabels <- c(
+  themePositiveSharedExperience = "Positive Shared Experience",
+  themePatientEmpowerment = "Patient Empowerment",
+  themePatientActivation = "Patient Activation",
+  subIsolationReduced = "Isolation Reduced",
+  subValidation = "Validation",
+  subSharedCommunity = "Shared Community",
+  subChangeNegHealthcare = "Change from Neg. Healthcare",
+  subGratitude = "Gratitude",
+  subEnjoymentPositive = "Enjoyment / Positive",
+  subContent = "Content",
+  subTeachingCoachingStyle = "Teaching / Coaching Style",
+  subCoachingStructure = "Coaching Structure",
+  subSelfEfficacy = "Self-Efficacy",
+  subAgencyKnowledgeSkills = "Agency (Knowledge/Skills)",
+  subAgencyActionableTools = "Agency (Actionable Tools)"
+)
+
+# Map sub-themes to their parent main theme for color grouping
+subToMain <- c(
+  subIsolationReduced = "Positive Shared Experience",
+  subValidation = "Positive Shared Experience",
+  subSharedCommunity = "Positive Shared Experience",
+  subChangeNegHealthcare = "Positive Shared Experience",
+  subGratitude = "Positive Shared Experience",
+  subEnjoymentPositive = "Positive Shared Experience",
+  subContent = "Patient Empowerment",
+  subTeachingCoachingStyle = "Patient Empowerment",
+  subCoachingStructure = "Patient Empowerment",
+  subSelfEfficacy = "Patient Activation",
+  subAgencyKnowledgeSkills = "Patient Activation",
+  subAgencyActionableTools = "Patient Activation"
+)
+
+
+## ----abstract-verify----------------------------------------------------------
+cat("=== Abstract Number Verification ===\n\n")
+N <- nrow(bgcc.df)
+cat("N =", N, "(abstract: 183)\n")
+cat("Mean age =", round(mean(bgcc.df$age, na.rm=TRUE), 1),
+    "(SD", round(sd(bgcc.df$age, na.rm=TRUE), 1), ") — abstract: 53.1 (SD 16.6)\n")
+nF <- sum(bgcc.df$sex == "F", na.rm=TRUE)
+cat("Female:", nF, "/", N, "=", round(100*nF/N, 1), "% — abstract: 76.9%\n")
+cat("Mean pre-IBS-SSS:", round(mean(bgcc.df$preIBSSSS, na.rm=TRUE), 1),
+    "(SD", round(sd(bgcc.df$preIBSSSS, na.rm=TRUE), 1), ") — abstract: 228 (SD 119.5)\n")
+
+nResp <- sum(bgcc.df$respondedToSurvey, na.rm=TRUE)
+cat("Survey respondents:", nResp, "/", N, "=", round(100*nResp/N, 1), "% — abstract: 109 (59.6%)\n")
+
+cat("\nDate range:", as.character(min(bgcc.df$classDate, na.rm=TRUE)),
+    "to", as.character(max(bgcc.df$classDate, na.rm=TRUE)),
+    "— abstract: 6/1/2023–8/3/2025\n")
+
+cat("\n** NOTE: Minor discrepancies likely reflect a data update after abstract submission. **\n")
+cat("** Current pipeline values should be used for the poster. **\n")
+
+
+## ----selection-bias-----------------------------------------------------------
+# Define cohort strata
+bgcc.df$stratum_respondent <- bgcc.df$respondedToSurvey
+bgcc.df$stratum_pairedIBS <- !is.na(bgcc.df$preIBSSSS) & !is.na(bgcc.df$postIBSSSS)
+bgcc.df$stratum_pairedPHQ <- !is.na(bgcc.df$prePHQ2) & !is.na(bgcc.df$postPHQ2)
+bgcc.df$stratum_pairedGAD <- !is.na(bgcc.df$preGAD7) & !is.na(bgcc.df$postGAD7)
+
+# Merge thematic coding for intersection check
+themeRespondents <- thematic.df %>%
+  filter(!is.na(surveyLiked) & tolower(surveyLiked) != "did not respond")
+respondentCodes <- themeRespondents$patientCode
+
+bgcc.df$stratum_intersectionIBS <- bgcc.df$patientCode %in% respondentCodes &
+  bgcc.df$stratum_pairedIBS
+
+cat("=== Cohort Strata ===\n")
+cat("A: All attendees         :", nrow(bgcc.df), "\n")
+cat("B: Survey respondents    :", sum(bgcc.df$stratum_respondent), "\n")
+cat("C: Paired IBS-SSS        :", sum(bgcc.df$stratum_pairedIBS), "\n")
+cat("D: Paired PHQ-2          :", sum(bgcc.df$stratum_pairedPHQ), "\n")
+cat("E: Paired GAD-7          :", sum(bgcc.df$stratum_pairedGAD), "\n")
+cat("F: Respondent+IBS-SSS    :", sum(bgcc.df$stratum_intersectionIBS), "\n")
+cat("G: Respondent+PHQ-2      :", sum(bgcc.df$patientCode %in% respondentCodes & bgcc.df$stratum_pairedPHQ), "\n")
+cat("H: Respondent+GAD-7      :", sum(bgcc.df$patientCode %in% respondentCodes & bgcc.df$stratum_pairedGAD), "\n")
+
+# Function to compare two groups on baseline characteristics
+compareGroups <- function(df, groupVar, label) {
+  g1 <- df[df[[groupVar]], ]
+  g0 <- df[!df[[groupVar]], ]
+  cat(sprintf("\n--- %s (n=%d) vs NOT (n=%d) ---\n", label, nrow(g1), nrow(g0)))
+
+  # Age
+  wAge <- wilcox.test(g1$age, g0$age)
+  cat(sprintf("  Age: %.1f (%.1f) vs %.1f (%.1f), Wilcoxon p=%s\n",
+    mean(g1$age, na.rm=TRUE), sd(g1$age, na.rm=TRUE),
+    mean(g0$age, na.rm=TRUE), sd(g0$age, na.rm=TRUE),
+    format.pval(wAge$p.value, digits=3)))
+
+  # Sex
+  t1 <- table(g1$sex)
+  t0 <- table(g0$sex)
+  pctF1 <- 100 * sum(g1$sex == "F", na.rm=TRUE) / nrow(g1)
+  pctF0 <- 100 * sum(g0$sex == "F", na.rm=TRUE) / nrow(g0)
+  sexTab <- table(df$sex, df[[groupVar]])
+  pSex <- tryCatch(chisq.test(sexTab)$p.value, error = function(e) fisher.test(sexTab)$p.value)
+  cat(sprintf("  Female: %.1f%% vs %.1f%%, p=%s\n", pctF1, pctF0, format.pval(pSex, digits=3)))
+
+  # Baseline IBS-SSS
+  wIBS <- tryCatch(wilcox.test(g1$preIBSSSS, g0$preIBSSSS)$p.value,
+    error = function(e) NA)
+  cat(sprintf("  Pre-IBS-SSS: %.1f (%.1f) vs %.1f (%.1f), p=%s\n",
+    mean(g1$preIBSSSS, na.rm=TRUE), sd(g1$preIBSSSS, na.rm=TRUE),
+    mean(g0$preIBSSSS, na.rm=TRUE), sd(g0$preIBSSSS, na.rm=TRUE),
+    format.pval(wIBS, digits=3)))
+
+  # nDiagnoses
+  wDx <- wilcox.test(g1$nDiagnoses, g0$nDiagnoses)
+  cat(sprintf("  nDiagnoses: %.1f (%.1f) vs %.1f (%.1f), p=%s\n",
+    mean(g1$nDiagnoses, na.rm=TRUE), sd(g1$nDiagnoses, na.rm=TRUE),
+    mean(g0$nDiagnoses, na.rm=TRUE), sd(g0$nDiagnoses, na.rm=TRUE),
+    format.pval(wDx$p.value, digits=3)))
+
+  # Baseline severity band (if available)
+  sevTab1 <- table(g1$preIBSSSSBand)
+  sevTab0 <- table(g0$preIBSSSSBand)
+  if (sum(sevTab1) > 0 && sum(sevTab0) > 0) {
+    cat("  IBS-SSS Severity (In group):", paste(names(sevTab1), sevTab1, collapse=", "), "\n")
+    cat("  IBS-SSS Severity (Not in group):", paste(names(sevTab0), sevTab0, collapse=", "), "\n")
+  }
+}
+
+compareGroups(bgcc.df, "stratum_respondent", "Survey Respondent")
+compareGroups(bgcc.df, "stratum_pairedIBS", "Paired IBS-SSS")
+compareGroups(bgcc.df, "stratum_intersectionIBS", "Respondent + Paired IBS-SSS")
+
+# Clean up temporary columns
+bgcc.df <- bgcc.df %>% select(-starts_with("stratum_"))
+
+
+## ----theme-outcome-setup------------------------------------------------------
+# Merge thematic coding with clinical data
+themeOutcome.df <- bgcc.df %>%
+  inner_join(themeRespondents %>% select(patientCode, all_of(allThemes)),
+    by = "patientCode")
+
+cat("Theme × outcome dataset:", nrow(themeOutcome.df), "patients\n")
+cat("  With paired IBS-SSS:", sum(!is.na(themeOutcome.df$deltaIBSSSS)), "\n")
+cat("  With paired PHQ-2:", sum(!is.na(themeOutcome.df$deltaPHQ2)), "\n")
+cat("  With paired GAD-7:", sum(!is.na(themeOutcome.df$deltaGAD7)), "\n")
+
+
+## ----responder-by-severity----------------------------------------------------
+ibsPaired <- bgcc.df %>%
+  filter(!is.na(preIBSSSS) & !is.na(postIBSSSS)) %>%
+  mutate(ibsResponder = deltaIBSSSS <= -50)
+
+cat("=== IBS-SSS Responder Rate by Baseline Severity ===\n\n")
+cat("Overall:", sum(ibsPaired$ibsResponder), "/", nrow(ibsPaired),
+    "=", round(100*mean(ibsPaired$ibsResponder), 1), "%\n\n")
+
+for (band in c("Remission", "Mild", "Moderate", "Severe")) {
+  sub <- ibsPaired %>% filter(preIBSSSSBand == band)
+  if (nrow(sub) > 0) {
+    nR <- sum(sub$ibsResponder)
+    nT <- nrow(sub)
+    pct <- round(100 * nR / nT, 1)
+    ci <- if (nR > 0 && nR < nT) {
+      ci <- prop.test(nR, nT, correct = FALSE)$conf.int
+      sprintf("[%.1f%%, %.1f%%]", 100*ci[1], 100*ci[2])
+    } else {
+      "—"
+    }
+    cat(sprintf("  %-12s: %d/%d = %5.1f%% %s\n", band, nR, nT, pct, ci))
+  }
+}
+cat("\nNote: Responder = ≥50-pt IBS-SSS decrease. Most meaningful for Moderate/Severe baseline.\n")
+
+
+## ----theme-ibs-formal---------------------------------------------------------
+# Formal tests: 3 main themes × deltaIBSSSS only
+toIBS <- themeOutcome.df %>% filter(!is.na(deltaIBSSSS))
+nIBS <- nrow(toIBS)
+cat("=== Main Theme × deltaIBSSSS (N =", nIBS, ") ===\n\n")
+
+if (nIBS >= 10) {
+  mainThemeIBS <- data.frame(
+    theme = character(), label = character(),
+    n0 = integer(), n1 = integer(),
+    medianDelta0 = numeric(), medianDelta1 = numeric(),
+    meanDelta0 = numeric(), meanDelta1 = numeric(),
+    wilcoxP = numeric(), rankBisR = numeric(),
+    rCIlow = numeric(), rCIhigh = numeric(),
+    stringsAsFactors = FALSE
+  )
+
+  for (theme in mainThemes) {
+    g0 <- toIBS$deltaIBSSSS[toIBS[[theme]] == 0]
+    g1 <- toIBS$deltaIBSSSS[toIBS[[theme]] == 1]
+    if (length(g0) >= 3 && length(g1) >= 3) {
+      wt <- wilcox.test(g1, g0, conf.int = TRUE)
+      rb <- effectsize::rank_biserial(g1, g0)
+      mainThemeIBS <- bind_rows(mainThemeIBS, data.frame(
+        theme = theme, label = themeLabels[theme],
+        n0 = length(g0), n1 = length(g1),
+        medianDelta0 = median(g0), medianDelta1 = median(g1),
+        meanDelta0 = mean(g0), meanDelta1 = mean(g1),
+        wilcoxP = wt$p.value,
+        rankBisR = rb$r_rank_biserial,
+        rCIlow = rb$CI_low, rCIhigh = rb$CI_high,
+        stringsAsFactors = FALSE
+      ))
+    }
+  }
+  mainThemeIBS$fdrP <- p.adjust(mainThemeIBS$wilcoxP, method = "BH")
+
+  cat("Formal Mann-Whitney tests (FDR-corrected):\n")
+  for (i in 1:nrow(mainThemeIBS)) {
+    row <- mainThemeIBS[i, ]
+    sig <- if (row$fdrP < 0.05) " *" else ""
+    cat(sprintf("  %s: theme present (n=%d) median Δ=%.0f vs absent (n=%d) median Δ=%.0f\n",
+      row$label, row$n1, row$medianDelta1, row$n0, row$medianDelta0))
+    cat(sprintf("    r = %.3f [%.3f, %.3f], p = %.4f, FDR p = %.4f%s\n",
+      row$rankBisR, row$rCIlow, row$rCIhigh, row$wilcoxP, row$fdrP, sig))
+  }
+}
+
+
+## ----theme-outcome-effectsizes------------------------------------------------
+# Effect sizes for ALL 15 themes × 3 outcomes (no formal tests for sub-themes)
+outcomes <- c("deltaIBSSSS", "deltaPHQ2", "deltaGAD7")
+outcomeLabels <- c(deltaIBSSSS = "IBS-SSS Δ", deltaPHQ2 = "PHQ-2 Δ", deltaGAD7 = "GAD-7 Δ")
+
+allEffects <- data.frame()
+
+for (theme in allThemes) {
+  for (outcome in outcomes) {
+    sub <- themeOutcome.df %>% filter(!is.na(.data[[outcome]]))
+    g0 <- sub[[outcome]][sub[[theme]] == 0]
+    g1 <- sub[[outcome]][sub[[theme]] == 1]
+
+    if (length(g0) >= 3 && length(g1) >= 3) {
+      rb <- tryCatch({
+        res <- effectsize::rank_biserial(g1, g0)
+        data.frame(r = res$r_rank_biserial, ciLow = res$CI_low, ciHigh = res$CI_high)
+      }, error = function(e) data.frame(r = NA, ciLow = NA, ciHigh = NA))
+
+      allEffects <- bind_rows(allEffects, data.frame(
+        theme = theme, themeLabel = themeLabels[theme],
+        outcome = outcome, outcomeLabel = outcomeLabels[outcome],
+        n0 = length(g0), n1 = length(g1),
+        meanDelta0 = mean(g0), meanDelta1 = mean(g1),
+        medDelta0 = median(g0), medDelta1 = median(g1),
+        r = rb$r, rCIlow = rb$ciLow, rCIhigh = rb$ciHigh,
+        type = ifelse(theme %in% mainThemes, "Main Theme", "Sub-Theme"),
+        parentTheme = ifelse(theme %in% mainThemes, themeLabels[theme], subToMain[theme]),
+        stringsAsFactors = FALSE
+      ))
+    }
+  }
+}
+
+cat("Computed", nrow(allEffects), "effect sizes (", length(unique(allEffects$theme)),
+    "themes ×", length(outcomes), "outcomes)\n\n")
+
+# Print summary table
+cat("=== Effect Size Summary (rank-biserial r) ===\n")
+cat("Negative r = theme-present group has MORE negative delta (more improvement)\n\n")
+for (out in outcomes) {
+  cat(sprintf("--- %s ---\n", outcomeLabels[out]))
+  sub <- allEffects %>% filter(outcome == out) %>% arrange(r)
+  for (i in 1:nrow(sub)) {
+    row <- sub[i, ]
+    marker <- ifelse(row$type == "Main Theme", " [MAIN]", "")
+    cat(sprintf("  %-35s: r = %+.3f [%+.3f, %+.3f] (n=%d/%d)%s\n",
+      row$themeLabel, row$r, row$rCIlow, row$rCIhigh, row$n1, row$n0, marker))
+  }
+  cat("\n")
+}
+
+
+## ----effect-heatmap, fig.width=12, fig.height=8-------------------------------
+# Order themes: main themes first, then sub-themes grouped by parent
+themeOrder <- c(
+  # Main themes
+  "Positive Shared Experience", "Patient Empowerment", "Patient Activation",
+  # Sub-themes under Positive Shared Experience
+  "Isolation Reduced", "Validation", "Shared Community",
+  "Change from Neg. Healthcare", "Gratitude", "Enjoyment / Positive",
+  # Sub-themes under Patient Empowerment
+  "Content", "Teaching / Coaching Style", "Coaching Structure",
+  # Sub-themes under Patient Activation
+  "Self-Efficacy", "Agency (Knowledge/Skills)", "Agency (Actionable Tools)"
+)
+
+heatData <- allEffects %>%
+  mutate(
+    themeLabel = factor(themeLabel, levels = rev(themeOrder)),
+    outcomeLabel = factor(outcomeLabel, levels = c("IBS-SSS Δ", "PHQ-2 Δ", "GAD-7 Δ")),
+    sigMarker = ifelse(!is.na(rCIlow) & !is.na(rCIhigh) &
+      ((rCIlow > 0 & rCIhigh > 0) | (rCIlow < 0 & rCIhigh < 0)), "*", "")
+  )
+
+figHeatmap <- ggplot(heatData, aes(x = outcomeLabel, y = themeLabel, fill = r)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  geom_text(aes(label = sprintf("%+.2f%s", r, sigMarker)),
+    size = 4, color = "black") +
+  scale_fill_gradient2(
+    low = "#228833", mid = "white", high = "#AA3377",
+    midpoint = 0, limits = c(-1, 1),
+    name = "Rank-\nbiserial r"
+  ) +
+  labs(
+    x = NULL, y = NULL,
+    title = "Exploratory: Theme Presence × Clinical Outcome Change",
+    subtitle = "Negative r = theme-present group improved more | * = 95% CI excludes zero"
+  ) +
+  theme_poster(base_size = 13) +
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    panel.grid = element_blank()
+  )
+
+print(figHeatmap)
+savePlot(figHeatmap, plotDir, "poster_themeOutcomeHeatmap", height = 8, width = 10)
+
+
+## ----responder-regression-----------------------------------------------------
+# Intersection: respondents + paired IBS-SSS
+toModel <- themeOutcome.df %>%
+  filter(!is.na(deltaIBSSSS)) %>%
+  mutate(ibsResponder = as.integer(deltaIBSSSS <= -50))
+
+nModel <- nrow(toModel)
+nResp <- sum(toModel$ibsResponder)
+cat("=== Logistic Regression: Responder ~ Themes (N =", nModel, ", responders =", nResp, ") ===\n\n")
+
+if (nModel >= 20 && nResp >= 5 && (nModel - nResp) >= 5) {
+  # Check if we have enough events per predictor (rule of ~10 EPV)
+  nPredictors <- 3  # main themes only
+  epv <- min(nResp, nModel - nResp) / nPredictors
+  cat("Events per variable:", round(epv, 1), "\n")
+
+  if (epv >= 5) {
+    # Adjusted model: themes + baseline + demographics
+    nPredFull <- 6
+    epvFull <- min(nResp, nModel - nResp) / nPredFull
+    cat("Full model EPV:", round(epvFull, 1), "\n")
+
+    if (epvFull >= 5) {
+      glmFull <- glm(ibsResponder ~ themePositiveSharedExperience +
+        themePatientEmpowerment + themePatientActivation +
+        preIBSSSS + age + sex,
+        data = toModel, family = binomial)
+      cat("\nFull model (themes + covariates):\n")
+      print(summary(glmFull)$coefficients)
+
+      # Odds ratios with CIs
+      orCI <- exp(cbind(OR = coef(glmFull), confint.default(glmFull)))
+      cat("\nOdds Ratios:\n")
+      print(round(orCI, 3))
+    } else {
+      cat("EPV too low for full model — fitting unadjusted model\n")
+    }
+
+    # Unadjusted models (one theme at a time)
+    cat("\n--- Unadjusted ORs (one theme at a time) ---\n")
+    for (theme in mainThemes) {
+      glmUnadj <- glm(as.formula(paste("ibsResponder ~", theme)),
+        data = toModel, family = binomial)
+      orCI <- exp(cbind(OR = coef(glmUnadj), confint.default(glmUnadj)))
+      pval <- summary(glmUnadj)$coefficients[2, 4]
+      cat(sprintf("  %s: OR = %.2f [%.2f, %.2f], p = %.3f\n",
+        themeLabels[theme], orCI[2, 1], orCI[2, 2], orCI[2, 3], pval))
+    }
+  } else {
+    cat("Too few events per variable for logistic regression.\n")
+    cat("Reporting Fisher exact tests instead.\n\n")
+    for (theme in mainThemes) {
+      tab <- table(toModel[[theme]], toModel$ibsResponder)
+      ft <- fisher.test(tab)
+      cat(sprintf("  %s: OR = %.2f [%.2f, %.2f], p = %.3f\n",
+        themeLabels[theme], ft$estimate, ft$conf.int[1], ft$conf.int[2], ft$p.value))
+    }
+  }
+} else {
+  cat("Insufficient sample size for regression (N =", nModel, ", responders =", nResp, ").\n")
+  cat("Descriptive comparison only.\n")
+}
+
+
+## ----delta-lm-----------------------------------------------------------------
+if (nModel >= 20) {
+  cat("=== Linear Model: deltaIBSSSS ~ themes + covariates ===\n\n")
+
+  lmFull <- lm(deltaIBSSSS ~ themePositiveSharedExperience +
+    themePatientEmpowerment + themePatientActivation +
+    preIBSSSS + age + sex,
+    data = toModel)
+
+  cat("Model summary:\n")
+  print(summary(lmFull))
+
+  # Standardized coefficients
+  cat("\nCoefficients with 95% CIs:\n")
+  coefCI <- cbind(
+    Estimate = coef(lmFull),
+    confint(lmFull)
+  )
+  print(round(coefCI, 2))
+}
+
+
+## ----microgoals, fig.width=10, fig.height=6-----------------------------------
+goalsText <- bgcc.df$microGoals[!is.na(bgcc.df$microGoals)]
+nGoals <- length(goalsText)
+cat("Patients with micro-goals:", nGoals, "\n\n")
+
+goalCategories <- list(
+  "Exercise / Movement" = c("exercise", "walk", "walking", "yoga", "stretch",
+    "move", "movement", "physical", "hike", "run", "swim", "gym", "steps"),
+  "Mindfulness / Meditation" = c("mindful", "meditat", "breath", "relax",
+    "calm", "deep breath", "diaphragm"),
+  "Diet / Nutrition" = c("diet", "eat", "food", "meal", "fiber", "water",
+    "hydrat", "nutrition", "fodmap", "drink"),
+  "Sleep / Rest" = c("sleep", "rest", "bedtime", "nap"),
+  "Social Activity" = c("social", "friend", "family", "connect", "community",
+    "group", "talk", "spend time"),
+  "Screen Time Reduction" = c("screen", "phone", "device", "tv",
+    "social media", "limit"),
+  "Stress Management" = c("stress", "journal", "writing", "gratitude",
+    "self-care", "selfcare"),
+  "App / Tool Use" = c("nerva", "mahana", "calmigo", "app")
+)
+
+goalCounts <- sapply(goalCategories, function(keywords) {
+  sum(sapply(goalsText, function(txt) any(str_detect(tolower(txt), keywords))))
+})
+
+goalData <- data.frame(
+  category = names(goalCounts),
+  n = as.integer(goalCounts),
+  pct = 100 * goalCounts / nGoals,
+  stringsAsFactors = FALSE
+) %>% arrange(desc(n))
+goalData$category <- factor(goalData$category, levels = rev(goalData$category))
+
+cat("Micro-goal categories:\n")
+for (i in 1:nrow(goalData)) {
+  cat(sprintf("  %-25s: %3d (%.1f%%)\n",
+    as.character(goalData$category[i]), goalData$n[i], goalData$pct[i]))
+}
+
+figGoals <- ggplot(goalData, aes(x = category, y = pct)) +
+  geom_col(fill = posterColors$mainTheme, width = 0.7) +
+  geom_text(aes(label = sprintf("%d (%.0f%%)", n, pct)),
+    hjust = -0.1, size = 4) +
+  coord_flip() +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.3))) +
+  labs(x = NULL, y = "% of patients with micro-goals",
+    title = sprintf("Patient-Set Micro-Goals (N=%d)", nGoals),
+    subtitle = "Keyword-based categorization of self-directed goals set during class") +
+  theme_poster()
+
+print(figGoals)
+savePlot(figGoals, plotDir, "poster_microGoals", height = 6, width = 10)
+
+
+## ----gardner-altman, fig.width=10, fig.height=7-------------------------------
+ibsPaired <- bgcc.df %>%
+  filter(!is.na(preIBSSSS) & !is.na(postIBSSSS)) %>%
+  mutate(
+    ibsResponder = deltaIBSSSS <= -50,
+    respLabel = ifelse(ibsResponder, "Responder (≥50-pt decrease)", "Non-responder")
+  )
+
+nIBS <- nrow(ibsPaired)
+meanDelta <- mean(ibsPaired$deltaIBSSSS)
+medianDelta <- median(ibsPaired$deltaIBSSSS)
+
+# Bootstrap 95% CI for mean delta
+set.seed(42)
+bootMean <- boot(ibsPaired$deltaIBSSSS, function(d, i) mean(d[i]), R = 2000)
+bootCI <- boot.ci(bootMean, type = "perc")$percent[4:5]
+
+# Paired data in long format
+ibsLong <- ibsPaired %>%
+  select(patientCode, preIBSSSS, postIBSSSS, ibsResponder) %>%
+  pivot_longer(cols = c(preIBSSSS, postIBSSSS),
+    names_to = "timepoint", values_to = "score") %>%
+  mutate(
+    time = factor(ifelse(grepl("pre", timepoint), "Pre-class", "Post-class"),
+      levels = c("Pre-class", "Post-class"))
+  )
+
+# Left panel: paired lines
+pLeft <- ggplot(ibsLong, aes(x = time, y = score)) +
+  geom_line(aes(group = patientCode, color = ibsResponder),
+    alpha = 0.35, linewidth = 0.4) +
+  geom_point(aes(color = ibsResponder), alpha = 0.3, size = 1) +
+  stat_summary(aes(group = 1), fun = mean, geom = "line",
+    color = "black", linewidth = 2) +
+  stat_summary(aes(group = 1), fun = mean, geom = "point",
+    color = "black", size = 4, shape = 18) +
+  geom_hline(yintercept = c(75, 175, 300), linetype = "dashed",
+    color = c("#228833", "#CCBB44", "#AA3377"), alpha = 0.5) +
+  scale_color_manual(values = c("TRUE" = "#228833", "FALSE" = "#AA3377"),
+    labels = c("TRUE" = "Responder", "FALSE" = "Non-responder"),
+    name = NULL) +
+  labs(x = NULL, y = "IBS-SSS Score") +
+  theme_poster() +
+  theme(legend.position = "bottom")
+
+# Right panel: delta distribution with mean + CI
+pRight <- ggplot(ibsPaired, aes(x = 1, y = deltaIBSSSS)) +
+  geom_hline(yintercept = 0, linetype = "solid", color = "grey50") +
+  geom_hline(yintercept = -50, linetype = "dotted", color = "#228833", linewidth = 0.8) +
+  geom_jitter(aes(color = ibsResponder), width = 0.15, alpha = 0.4, size = 2) +
+  # Mean + CI
+  annotate("rect", xmin = 0.6, xmax = 1.4,
+    ymin = bootCI[1], ymax = bootCI[2],
+    fill = "black", alpha = 0.15) +
+  annotate("segment", x = 0.6, xend = 1.4,
+    y = meanDelta, yend = meanDelta,
+    color = "black", linewidth = 1.5) +
+  annotate("text", x = 1.55, y = meanDelta,
+    label = sprintf("Mean: %.0f\n[%.0f, %.0f]", meanDelta, bootCI[1], bootCI[2]),
+    hjust = 0, size = 4, fontface = "bold") +
+  scale_color_manual(values = c("TRUE" = "#228833", "FALSE" = "#AA3377"), guide = "none") +
+  scale_x_continuous(limits = c(0.3, 2.2), breaks = NULL) +
+  labs(x = NULL, y = "IBS-SSS Change\n(Post - Pre)") +
+  theme_poster() +
+  theme(axis.text.x = element_blank())
+
+figEstimation <- pLeft + pRight +
+  plot_layout(widths = c(2, 1)) +
+  plot_annotation(
+    title = sprintf("IBS-SSS Pre/Post Change (N=%d paired)", nIBS),
+    subtitle = sprintf("Responders (≥50-pt decrease): %d/%d (%.0f%%) | Dotted line = clinically meaningful threshold",
+      sum(ibsPaired$ibsResponder), nIBS, 100*mean(ibsPaired$ibsResponder)),
+    theme = theme_poster()
+  )
+
+print(figEstimation)
+savePlot(figEstimation, plotDir, "poster_ibsEstimation", height = 7, width = 12)
+
+
+## ----alluvial-annotated, fig.width=10, fig.height=7---------------------------
+alluvialData <- ibsPaired %>%
+  count(preIBSSSSBand, postIBSSSSBand) %>%
+  rename(Pre = preIBSSSSBand, Post = postIBSSSSBand, Freq = n)
+
+# Responder rate by baseline severity
+respBySev <- ibsPaired %>%
+  group_by(preIBSSSSBand) %>%
+  summarise(
+    n = n(), nResp = sum(ibsResponder),
+    pctResp = round(100 * nResp / n, 0),
+    .groups = "drop"
+  )
+
+figAlluvial <- ggplot(alluvialData,
+  aes(axis1 = Pre, axis2 = Post, y = Freq)) +
+  geom_alluvium(aes(fill = Pre), width = 1/3, alpha = 0.7) +
+  geom_stratum(width = 1/3, fill = "grey90", color = "grey50") +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum)), size = 4.5) +
+  scale_x_discrete(limits = c("Pre-class", "Post-class"),
+    expand = c(0.15, 0.05)) +
+  scale_fill_manual(values = posterColors$severity, name = "Pre-class\nSeverity") +
+  labs(
+    y = "Number of Patients",
+    title = sprintf("IBS-SSS Severity Transitions (N=%d)", nIBS),
+    subtitle = paste0("Responder rate by baseline: ",
+      paste(sprintf("%s %d%% (%d/%d)", respBySev$preIBSSSSBand,
+        respBySev$pctResp, respBySev$nResp, respBySev$n), collapse = " | "))
+  ) +
+  theme_poster() +
+  theme(legend.position = "right")
+
+print(figAlluvial)
+savePlot(figAlluvial, plotDir, "poster_ibsAlluvial", height = 7, width = 10)
+
+
+## ----theme-prevalence-poster, fig.width=12, fig.height=8----------------------
+nThemeResp <- nrow(themeRespondents)
+
+themeData <- data.frame(
+  theme = allThemes,
+  label = themeLabels[allThemes],
+  n = sapply(allThemes, function(t) sum(themeRespondents[[t]] == 1)),
+  stringsAsFactors = FALSE
+) %>%
+  mutate(
+    pct = 100 * n / nThemeResp,
+    type = ifelse(theme %in% mainThemes, "Main Theme", "Sub-Theme"),
+    parentTheme = ifelse(theme %in% mainThemes, themeLabels[theme], subToMain[theme])
+  )
+
+# Wilson CIs
+for (i in 1:nrow(themeData)) {
+  ci <- prop.test(themeData$n[i], nThemeResp, correct = FALSE)$conf.int
+  themeData$ciLow[i] <- 100 * ci[1]
+  themeData$ciHigh[i] <- 100 * ci[2]
+}
+
+# Order: main themes first at top, then sub-themes grouped by parent, sorted by prevalence
+themeData <- themeData %>%
+  mutate(
+    label = factor(label, levels = rev(themeOrder))
+  )
+
+figThemePrevalence <- ggplot(themeData, aes(x = label, y = pct, fill = parentTheme)) +
+  geom_col(width = 0.7, alpha = 0.85) +
+  geom_errorbar(aes(ymin = ciLow, ymax = ciHigh), width = 0.2, linewidth = 0.5) +
+  geom_text(aes(label = sprintf("%d (%.0f%%)", n, pct)),
+    hjust = -0.1, size = 3.8) +
+  coord_flip() +
+  scale_fill_manual(values = posterColors$themeGroup, name = "Theme Group") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.25))) +
+  labs(
+    x = NULL, y = "Prevalence (% of respondents)",
+    title = sprintf("Thematic Analysis Results (N=%d respondents)", nThemeResp),
+    subtitle = "Binary per participant (≥1 mention = present) | Error bars = Wilson 95% CI"
+  ) +
+  theme_poster() +
+  theme(legend.position = "bottom")
+
+print(figThemePrevalence)
+savePlot(figThemePrevalence, plotDir, "poster_themePrevalence", height = 8, width = 12)
+
+
+## ----phq-gad-prepost, fig.width=12, fig.height=6------------------------------
+makeEstimationPlot <- function(df, preCol, postCol, scoreName, thresholds = NULL,
+                                threshColors = NULL) {
+  paired <- df %>%
+    filter(!is.na(!!sym(preCol)) & !is.na(!!sym(postCol))) %>%
+    mutate(delta = !!sym(postCol) - !!sym(preCol))
+
+  nPaired <- nrow(paired)
+  meanD <- mean(paired$delta)
+
+  set.seed(42)
+  bootM <- boot(paired$delta, function(d, i) mean(d[i]), R = 2000)
+  bCI <- boot.ci(bootM, type = "perc")$percent[4:5]
+
+  long <- paired %>%
+    select(patientCode, !!sym(preCol), !!sym(postCol)) %>%
+    pivot_longer(cols = c(!!sym(preCol), !!sym(postCol)),
+      names_to = "tp", values_to = "score") %>%
+    mutate(time = factor(ifelse(grepl("pre", tp), "Pre", "Post"), levels = c("Pre", "Post")))
+
+  p <- ggplot(long, aes(x = time, y = score)) +
+    geom_line(aes(group = patientCode), alpha = 0.15, color = "grey50") +
+    geom_point(alpha = 0.15, size = 0.8, color = "grey50") +
+    stat_summary(aes(group = 1), fun = mean, geom = "line",
+      color = "black", linewidth = 1.5) +
+    stat_summary(aes(group = 1), fun = mean, geom = "point",
+      color = "black", size = 3, shape = 18) +
+    labs(
+      x = NULL, y = scoreName,
+      title = sprintf("%s (N=%d)", scoreName, nPaired),
+      subtitle = sprintf("Mean Δ = %.2f [%.2f, %.2f]", meanD, bCI[1], bCI[2])
+    ) +
+    theme_poster(base_size = 12)
+
+  if (!is.null(thresholds)) {
+    for (i in seq_along(thresholds)) {
+      p <- p + geom_hline(yintercept = thresholds[i], linetype = "dashed",
+        color = threshColors[i], alpha = 0.5)
+    }
+  }
+  p
+}
+
+pPHQ <- makeEstimationPlot(bgcc.df, "prePHQ2", "postPHQ2", "PHQ-2",
+  thresholds = 3, threshColors = "#AA3377")
+pGAD <- makeEstimationPlot(bgcc.df, "preGAD7", "postGAD7", "GAD-7",
+  thresholds = c(5, 10, 15), threshColors = c("#CCBB44", "#EE6677", "#AA3377"))
+
+figPHQGAD <- pPHQ + pGAD +
+  plot_annotation(
+    title = "Supporting Outcomes: PHQ-2 and GAD-7",
+    theme = theme_poster()
+  )
+
+print(figPHQGAD)
+savePlot(figPHQGAD, plotDir, "poster_phqGadPrePost", height = 6, width = 12)
+
+
+## ----summary------------------------------------------------------------------
+cat("============================================================\n")
+cat("POSTER KEY FINDINGS SUMMARY\n")
+cat("============================================================\n\n")
+
+cat("COHORT: N =", nrow(bgcc.df), "patients,", nrow(themeRespondents), "survey respondents\n")
+cat("  Mean age:", round(mean(bgcc.df$age, na.rm=TRUE), 1),
+    "| Female:", round(100*sum(bgcc.df$sex=="F", na.rm=TRUE)/nrow(bgcc.df), 1), "%\n\n")
+
+cat("IBS-SSS (N =", nrow(ibsPaired), "paired):\n")
+cat("  Pre: mean", round(mean(ibsPaired$preIBSSSS), 1),
+    "→ Post: mean", round(mean(ibsPaired$postIBSSSS), 1), "\n")
+cat("  Mean change:", round(meanDelta, 1), "[", round(bootCI[1], 1), ",", round(bootCI[2], 1), "]\n")
+cat("  Responders:", sum(ibsPaired$ibsResponder), "/", nIBS,
+    "(", round(100*mean(ibsPaired$ibsResponder), 1), "%)\n\n")
+
+cat("THEMATIC (N =", nThemeResp, "respondents):\n")
+for (t in mainThemes) {
+  n <- sum(themeRespondents[[t]] == 1)
+  cat(sprintf("  %-35s: %d (%.1f%%)\n", themeLabels[t], n, 100*n/nThemeResp))
+}
+
+cat("\nTHEME × OUTCOME INTERSECTION SIZES:\n")
+cat("  Respondent + paired IBS-SSS: N =", nrow(toIBS), "\n")
+cat("  Respondent + paired PHQ-2:   N =", sum(!is.na(themeOutcome.df$deltaPHQ2)), "\n")
+cat("  Respondent + paired GAD-7:   N =", sum(!is.na(themeOutcome.df$deltaGAD7)), "\n")
+
+cat("\nABSTRACT DISCREPANCIES (current data vs abstract):\n")
+cat("  N: 182 vs 183 (1 patient difference)\n")
+cat("  Female %: 76.4% vs 76.9%\n")
+cat("  Respondents: 112 vs 109\n")
+cat("  Theme %s are close but not exact (likely reflects updated consensus coding)\n")
+cat("  Date range: 2023-12-15 to 2025-07-11 vs abstract 6/1/2023–8/3/2025\n")
+cat("  IBS-C 41.8% vs 29.0% — LARGE DISCREPANCY (may be denominator difference)\n")
+cat("  Functional abd pain 7.1% vs 16.4% — LARGE DISCREPANCY\n")
+
+
+## ----cleanup------------------------------------------------------------------
+# Remove temporary verification script
+if (file.exists(file.path(baseDir, "code/abstract_verify.R"))) {
+  file.remove(file.path(baseDir, "code/abstract_verify.R"))
+}
+
