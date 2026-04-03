@@ -122,7 +122,7 @@ Or open the individual `.Rmd` files in RStudio and knit/run chunks interactively
 **R packages** (loaded automatically by each script):
 
 - Data wrangling: `dplyr`, `tidyr`, `stringr`, `forcats`
-- Excel I/O: `openxlsx` (note: `readxl` is not used due to compatibility issues)
+- Excel I/O: `openxlsx`
 - Statistics: `rstatix`, `effectsize`, `lme4`, `pwr`
 - Visualization: `ggplot2`, `patchwork`, `ggalluvial`, `UpSetR`
 - Tables: `gtsummary`, `gt`, `flextable`
