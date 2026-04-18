@@ -111,19 +111,19 @@ subToMain <- c(
 cat("=== Abstract Number Verification ===\n\n")
 N <- nrow(bgcc.df)
 cat("N =", N, "(abstract: 183)\n")
-cat("Mean age =", round(mean(bgcc.df$age, na.rm=TRUE), 1),
-    "(SD", round(sd(bgcc.df$age, na.rm=TRUE), 1), ") — abstract: 53.1 (SD 16.6)\n")
-nF <- sum(bgcc.df$sex == "F", na.rm=TRUE)
-cat("Female:", nF, "/", N, "=", round(100*nF/N, 1), "% — abstract: 76.9%\n")
-cat("Mean pre-IBS-SSS:", round(mean(bgcc.df$preIBSSSS, na.rm=TRUE), 1),
-    "(SD", round(sd(bgcc.df$preIBSSSS, na.rm=TRUE), 1), ") — abstract: 228 (SD 119.5)\n")
+cat("Mean age =", round(mean(bgcc.df$age, na.rm = TRUE), 1),
+  "(SD", round(sd(bgcc.df$age, na.rm = TRUE), 1), ") — abstract: 53.1 (SD 16.6)\n")
+nF <- sum(bgcc.df$sex == "F", na.rm = TRUE)
+cat("Female:", nF, "/", N, "=", round(100 * nF / N, 1), "% — abstract: 76.9%\n")
+cat("Mean pre-IBS-SSS:", round(mean(bgcc.df$preIBSSSS, na.rm = TRUE), 1),
+  "(SD", round(sd(bgcc.df$preIBSSSS, na.rm = TRUE), 1), ") — abstract: 228 (SD 119.5)\n")
 
-nResp <- sum(bgcc.df$respondedToSurvey, na.rm=TRUE)
-cat("Survey respondents:", nResp, "/", N, "=", round(100*nResp/N, 1), "% — abstract: 109 (59.6%)\n")
+nResp <- sum(bgcc.df$respondedToSurvey, na.rm = TRUE)
+cat("Survey respondents:", nResp, "/", N, "=", round(100 * nResp / N, 1), "% — abstract: 109 (59.6%)\n")
 
-cat("\nDate range:", as.character(min(bgcc.df$classDate, na.rm=TRUE)),
-    "to", as.character(max(bgcc.df$classDate, na.rm=TRUE)),
-    "— abstract: 6/1/2023–8/3/2025\n")
+cat("\nDate range:", as.character(min(bgcc.df$classDate, na.rm = TRUE)),
+  "to", as.character(max(bgcc.df$classDate, na.rm = TRUE)),
+  "— abstract: 6/1/2023–8/3/2025\n")
 
 cat("\n** NOTE: Minor discrepancies likely reflect a data update after abstract submission. **\n")
 cat("** Current pipeline values should be used for the poster. **\n")
@@ -163,40 +163,40 @@ compareGroups <- function(df, groupVar, label) {
   # Age
   wAge <- wilcox.test(g1$age, g0$age)
   cat(sprintf("  Age: %.1f (%.1f) vs %.1f (%.1f), Wilcoxon p=%s\n",
-    mean(g1$age, na.rm=TRUE), sd(g1$age, na.rm=TRUE),
-    mean(g0$age, na.rm=TRUE), sd(g0$age, na.rm=TRUE),
-    format.pval(wAge$p.value, digits=3)))
+    mean(g1$age, na.rm = TRUE), sd(g1$age, na.rm = TRUE),
+    mean(g0$age, na.rm = TRUE), sd(g0$age, na.rm = TRUE),
+    format.pval(wAge$p.value, digits = 3)))
 
   # Sex
   t1 <- table(g1$sex)
   t0 <- table(g0$sex)
-  pctF1 <- 100 * sum(g1$sex == "F", na.rm=TRUE) / nrow(g1)
-  pctF0 <- 100 * sum(g0$sex == "F", na.rm=TRUE) / nrow(g0)
+  pctF1 <- 100 * sum(g1$sex == "F", na.rm = TRUE) / nrow(g1)
+  pctF0 <- 100 * sum(g0$sex == "F", na.rm = TRUE) / nrow(g0)
   sexTab <- table(df$sex, df[[groupVar]])
   pSex <- tryCatch(chisq.test(sexTab)$p.value, error = function(e) fisher.test(sexTab)$p.value)
-  cat(sprintf("  Female: %.1f%% vs %.1f%%, p=%s\n", pctF1, pctF0, format.pval(pSex, digits=3)))
+  cat(sprintf("  Female: %.1f%% vs %.1f%%, p=%s\n", pctF1, pctF0, format.pval(pSex, digits = 3)))
 
   # Baseline IBS-SSS
   wIBS <- tryCatch(wilcox.test(g1$preIBSSSS, g0$preIBSSSS)$p.value,
     error = function(e) NA)
   cat(sprintf("  Pre-IBS-SSS: %.1f (%.1f) vs %.1f (%.1f), p=%s\n",
-    mean(g1$preIBSSSS, na.rm=TRUE), sd(g1$preIBSSSS, na.rm=TRUE),
-    mean(g0$preIBSSSS, na.rm=TRUE), sd(g0$preIBSSSS, na.rm=TRUE),
-    format.pval(wIBS, digits=3)))
+    mean(g1$preIBSSSS, na.rm = TRUE), sd(g1$preIBSSSS, na.rm = TRUE),
+    mean(g0$preIBSSSS, na.rm = TRUE), sd(g0$preIBSSSS, na.rm = TRUE),
+    format.pval(wIBS, digits = 3)))
 
   # nDiagnoses
   wDx <- wilcox.test(g1$nDiagnoses, g0$nDiagnoses)
   cat(sprintf("  nDiagnoses: %.1f (%.1f) vs %.1f (%.1f), p=%s\n",
-    mean(g1$nDiagnoses, na.rm=TRUE), sd(g1$nDiagnoses, na.rm=TRUE),
-    mean(g0$nDiagnoses, na.rm=TRUE), sd(g0$nDiagnoses, na.rm=TRUE),
-    format.pval(wDx$p.value, digits=3)))
+    mean(g1$nDiagnoses, na.rm = TRUE), sd(g1$nDiagnoses, na.rm = TRUE),
+    mean(g0$nDiagnoses, na.rm = TRUE), sd(g0$nDiagnoses, na.rm = TRUE),
+    format.pval(wDx$p.value, digits = 3)))
 
   # Baseline severity band (if available)
   sevTab1 <- table(g1$preIBSSSSBand)
   sevTab0 <- table(g0$preIBSSSSBand)
   if (sum(sevTab1) > 0 && sum(sevTab0) > 0) {
-    cat("  IBS-SSS Severity (In group):", paste(names(sevTab1), sevTab1, collapse=", "), "\n")
-    cat("  IBS-SSS Severity (Not in group):", paste(names(sevTab0), sevTab0, collapse=", "), "\n")
+    cat("  IBS-SSS Severity (In group):", paste(names(sevTab1), sevTab1, collapse = ", "), "\n")
+    cat("  IBS-SSS Severity (Not in group):", paste(names(sevTab0), sevTab0, collapse = ", "), "\n")
   }
 }
 
@@ -227,7 +227,7 @@ ibsPaired <- bgcc.df %>%
 
 cat("=== IBS-SSS Responder Rate by Baseline Severity ===\n\n")
 cat("Overall:", sum(ibsPaired$ibsResponder), "/", nrow(ibsPaired),
-    "=", round(100*mean(ibsPaired$ibsResponder), 1), "%\n\n")
+  "=", round(100 * mean(ibsPaired$ibsResponder), 1), "%\n\n")
 
 for (band in c("Remission", "Mild", "Moderate", "Severe")) {
   sub <- ibsPaired %>% filter(preIBSSSSBand == band)
@@ -237,7 +237,7 @@ for (band in c("Remission", "Mild", "Moderate", "Severe")) {
     pct <- round(100 * nR / nT, 1)
     ci <- if (nR > 0 && nR < nT) {
       ci <- prop.test(nR, nT, correct = FALSE)$conf.int
-      sprintf("[%.1f%%, %.1f%%]", 100*ci[1], 100*ci[2])
+      sprintf("[%.1f%%, %.1f%%]", 100 * ci[1], 100 * ci[2])
     } else {
       "—"
     }
@@ -310,10 +310,12 @@ for (theme in allThemes) {
     g1 <- sub[[outcome]][sub[[theme]] == 1]
 
     if (length(g0) >= 3 && length(g1) >= 3) {
-      rb <- tryCatch({
-        res <- effectsize::rank_biserial(g1, g0)
-        data.frame(r = res$r_rank_biserial, ciLow = res$CI_low, ciHigh = res$CI_high)
-      }, error = function(e) data.frame(r = NA, ciLow = NA, ciHigh = NA))
+      rb <- tryCatch(
+        {
+          res <- effectsize::rank_biserial(g1, g0)
+          data.frame(r = res$r_rank_biserial, ciLow = res$CI_low, ciHigh = res$CI_high)
+        },
+        error = function(e) data.frame(r = NA, ciLow = NA, ciHigh = NA))
 
       allEffects <- bind_rows(allEffects, data.frame(
         theme = theme, themeLabel = themeLabels[theme],
@@ -331,7 +333,7 @@ for (theme in allThemes) {
 }
 
 cat("Computed", nrow(allEffects), "effect sizes (", length(unique(allEffects$theme)),
-    "themes ×", length(outcomes), "outcomes)\n\n")
+  "themes ×", length(outcomes), "outcomes)\n\n")
 
 # Print summary table
 cat("=== Effect Size Summary (rank-biserial r) ===\n")
@@ -421,7 +423,7 @@ if (nModel >= 20 && nResp >= 5 && (nModel - nResp) >= 5) {
       glmFull <- glm(ibsResponder ~ themePositiveSharedExperience +
         themePatientEmpowerment + themePatientActivation +
         preIBSSSS + age + sex,
-        data = toModel, family = binomial)
+      data = toModel, family = binomial)
       cat("\nFull model (themes + covariates):\n")
       print(summary(glmFull)$coefficients)
 
@@ -466,7 +468,7 @@ if (nModel >= 20) {
   lmFull <- lm(deltaIBSSSS ~ themePositiveSharedExperience +
     themePatientEmpowerment + themePatientActivation +
     preIBSSSS + age + sex,
-    data = toModel)
+  data = toModel)
 
   cat("Model summary:\n")
   print(summary(lmFull))
@@ -607,7 +609,7 @@ figEstimation <- pLeft + pRight +
   plot_annotation(
     title = sprintf("IBS-SSS Pre/Post Change (N=%d paired)", nIBS),
     subtitle = sprintf("Responders (≥50-pt decrease): %d/%d (%.0f%%) | Dotted line = clinically meaningful threshold",
-      sum(ibsPaired$ibsResponder), nIBS, 100*mean(ibsPaired$ibsResponder)),
+      sum(ibsPaired$ibsResponder), nIBS, 100 * mean(ibsPaired$ibsResponder)),
     theme = theme_poster()
   )
 
@@ -631,8 +633,8 @@ respBySev <- ibsPaired %>%
 
 figAlluvial <- ggplot(alluvialData,
   aes(axis1 = Pre, axis2 = Post, y = Freq)) +
-  geom_alluvium(aes(fill = Pre), width = 1/3, alpha = 0.7) +
-  geom_stratum(width = 1/3, fill = "grey90", color = "grey50") +
+  geom_alluvium(aes(fill = Pre), width = 1 / 3, alpha = 0.7) +
+  geom_stratum(width = 1 / 3, fill = "grey90", color = "grey50") +
   geom_text(stat = "stratum", aes(label = after_stat(stratum)), size = 4.5) +
   scale_x_discrete(limits = c("Pre-class", "Post-class"),
     expand = c(0.15, 0.05)) +
@@ -640,12 +642,16 @@ figAlluvial <- ggplot(alluvialData,
   labs(
     y = "Number of Patients",
     title = sprintf("IBS-SSS Severity Transitions (N=%d)", nIBS),
-    subtitle = paste0("Responder rate by baseline: ",
+    subtitle = paste0(
       paste(sprintf("%s %d%% (%d/%d)", respBySev$preIBSSSSBand,
-        respBySev$pctResp, respBySev$nResp, respBySev$n), collapse = " | "))
+        respBySev$pctResp, respBySev$nResp, respBySev$n)[1:2], collapse = " | "),
+      "\n",
+      paste(sprintf("%s %d%% (%d/%d)", respBySev$preIBSSSSBand,
+        respBySev$pctResp, respBySev$nResp, respBySev$n)[3:4], collapse = " | "))
   ) +
   theme_poster() +
-  theme(legend.position = "right")
+  theme(legend.position = "right",
+    plot.subtitle = element_text(size = 12))
 
 print(figAlluvial)
 savePlot(figAlluvial, plotDir, "poster_ibsAlluvial", height = 7, width = 10)
@@ -701,7 +707,7 @@ savePlot(figThemePrevalence, plotDir, "poster_themePrevalence", height = 8, widt
 
 ## ----phq-gad-prepost, fig.width=12, fig.height=6------------------------------
 makeEstimationPlot <- function(df, preCol, postCol, scoreName, thresholds = NULL,
-                                threshColors = NULL) {
+                               threshColors = NULL) {
   paired <- df %>%
     filter(!is.na(!!sym(preCol)) & !is.na(!!sym(postCol))) %>%
     mutate(delta = !!sym(postCol) - !!sym(preCol))
@@ -763,20 +769,20 @@ cat("POSTER KEY FINDINGS SUMMARY\n")
 cat("============================================================\n\n")
 
 cat("COHORT: N =", nrow(bgcc.df), "patients,", nrow(themeRespondents), "survey respondents\n")
-cat("  Mean age:", round(mean(bgcc.df$age, na.rm=TRUE), 1),
-    "| Female:", round(100*sum(bgcc.df$sex=="F", na.rm=TRUE)/nrow(bgcc.df), 1), "%\n\n")
+cat("  Mean age:", round(mean(bgcc.df$age, na.rm = TRUE), 1),
+  "| Female:", round(100 * sum(bgcc.df$sex == "F", na.rm = TRUE) / nrow(bgcc.df), 1), "%\n\n")
 
 cat("IBS-SSS (N =", nrow(ibsPaired), "paired):\n")
 cat("  Pre: mean", round(mean(ibsPaired$preIBSSSS), 1),
-    "→ Post: mean", round(mean(ibsPaired$postIBSSSS), 1), "\n")
+  "→ Post: mean", round(mean(ibsPaired$postIBSSSS), 1), "\n")
 cat("  Mean change:", round(meanDelta, 1), "[", round(bootCI[1], 1), ",", round(bootCI[2], 1), "]\n")
 cat("  Responders:", sum(ibsPaired$ibsResponder), "/", nIBS,
-    "(", round(100*mean(ibsPaired$ibsResponder), 1), "%)\n\n")
+  "(", round(100 * mean(ibsPaired$ibsResponder), 1), "%)\n\n")
 
 cat("THEMATIC (N =", nThemeResp, "respondents):\n")
 for (t in mainThemes) {
   n <- sum(themeRespondents[[t]] == 1)
-  cat(sprintf("  %-35s: %d (%.1f%%)\n", themeLabels[t], n, 100*n/nThemeResp))
+  cat(sprintf("  %-35s: %d (%.1f%%)\n", themeLabels[t], n, 100 * n / nThemeResp))
 }
 
 cat("\nTHEME × OUTCOME INTERSECTION SIZES:\n")
