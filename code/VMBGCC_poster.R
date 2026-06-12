@@ -43,9 +43,9 @@ posterColors <- list(
     "Moderate" = "#EE6677", "Severe" = "#AA3377"
   ),
   themeGroup = c(
-    "Positive Shared Experience" = "#4477AA",
-    "Patient Empowerment" = "#228833",
-    "Patient Activation" = "#EE6677"
+    "Positive Community Atmosphere" = "#4477AA",
+    "Collaborative Engaging Educational Environment" = "#228833",
+    "Equipping Patients with Hope and Actionable Tools" = "#EE6677"
   )
 )
 
@@ -64,6 +64,8 @@ theme_poster <- function(base_size = 14) {
 }
 
 # ---- Theme vectors and labels ----
+# NOTE: Data column names retain legacy identifiers; display labels match the
+# clinician-researcher consensus poster (overarching theme: Patient Empowerment).
 mainThemes <- c("themePositiveSharedExperience", "themePatientEmpowerment",
   "themePatientActivation")
 subThemes <- c("subIsolationReduced", "subValidation", "subSharedCommunity",
@@ -72,38 +74,40 @@ subThemes <- c("subIsolationReduced", "subValidation", "subSharedCommunity",
   "subSelfEfficacy", "subAgencyKnowledgeSkills", "subAgencyActionableTools")
 allThemes <- c(mainThemes, subThemes)
 
+overarchingTheme <- "Patient Empowerment"
+
 themeLabels <- c(
-  themePositiveSharedExperience = "Positive Shared Experience",
-  themePatientEmpowerment = "Patient Empowerment",
-  themePatientActivation = "Patient Activation",
-  subIsolationReduced = "Isolation Reduced",
-  subValidation = "Validation",
-  subSharedCommunity = "Shared Community",
-  subChangeNegHealthcare = "Change from Neg. Healthcare",
-  subGratitude = "Gratitude",
-  subEnjoymentPositive = "Enjoyment / Positive",
-  subContent = "Content",
-  subTeachingCoachingStyle = "Teaching / Coaching Style",
-  subCoachingStructure = "Coaching Structure",
-  subSelfEfficacy = "Self-Efficacy",
-  subAgencyKnowledgeSkills = "Agency (Knowledge/Skills)",
-  subAgencyActionableTools = "Agency (Actionable Tools)"
+  themePositiveSharedExperience = "Positive Community Atmosphere",
+  themePatientEmpowerment       = "Collaborative Engaging Educational Environment",
+  themePatientActivation        = "Equipping Patients with Hope and Actionable Tools",
+  subIsolationReduced       = "Isolation Reduced",
+  subValidation             = "Validation",
+  subSharedCommunity        = "Shared Community",
+  subChangeNegHealthcare    = "Change from Negative Healthcare Experiences",
+  subGratitude              = "Gratitude",
+  subEnjoymentPositive      = "Positive Experience",
+  subContent                = "Presentation Content",
+  subTeachingCoachingStyle  = "Presenter Teaching/Coaching Style",
+  subCoachingStructure      = "Virtual Coaching Class Format",
+  subSelfEfficacy           = "Patient Self-Efficacy",
+  subAgencyKnowledgeSkills  = "Patient Agency (Knowledge, Skills)",
+  subAgencyActionableTools  = "Patient Agency (Actionable Tools)"
 )
 
 # Map sub-themes to their parent main theme for color grouping
 subToMain <- c(
-  subIsolationReduced = "Positive Shared Experience",
-  subValidation = "Positive Shared Experience",
-  subSharedCommunity = "Positive Shared Experience",
-  subChangeNegHealthcare = "Positive Shared Experience",
-  subGratitude = "Positive Shared Experience",
-  subEnjoymentPositive = "Positive Shared Experience",
-  subContent = "Patient Empowerment",
-  subTeachingCoachingStyle = "Patient Empowerment",
-  subCoachingStructure = "Patient Empowerment",
-  subSelfEfficacy = "Patient Activation",
-  subAgencyKnowledgeSkills = "Patient Activation",
-  subAgencyActionableTools = "Patient Activation"
+  subIsolationReduced       = "Positive Community Atmosphere",
+  subValidation             = "Positive Community Atmosphere",
+  subSharedCommunity        = "Positive Community Atmosphere",
+  subChangeNegHealthcare    = "Positive Community Atmosphere",
+  subGratitude              = "Positive Community Atmosphere",
+  subEnjoymentPositive      = "Positive Community Atmosphere",
+  subContent                = "Collaborative Engaging Educational Environment",
+  subTeachingCoachingStyle  = "Collaborative Engaging Educational Environment",
+  subCoachingStructure      = "Collaborative Engaging Educational Environment",
+  subSelfEfficacy           = "Equipping Patients with Hope and Actionable Tools",
+  subAgencyKnowledgeSkills  = "Equipping Patients with Hope and Actionable Tools",
+  subAgencyActionableTools  = "Equipping Patients with Hope and Actionable Tools"
 )
 
 

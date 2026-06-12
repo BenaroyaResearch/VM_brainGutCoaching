@@ -267,21 +267,21 @@ subThemes <- c("subIsolationReduced", "subValidation", "subSharedCommunity",
 allThemes <- c(mainThemes, subThemes)
 
 themeLabels <- c(
-  themePositiveSharedExperience = "Positive Shared Experience",
-  themePatientEmpowerment = "Patient Empowerment",
-  themePatientActivation = "Patient Activation",
-  subIsolationReduced = "Isolation Reduced",
-  subValidation = "Validation",
-  subSharedCommunity = "Shared Community",
-  subChangeNegHealthcare = "Change from Neg. Healthcare Exp.",
-  subGratitude = "Gratitude",
-  subEnjoymentPositive = "Enjoyment / Positive Experience",
-  subContent = "Content",
-  subTeachingCoachingStyle = "Teaching / Coaching Style",
-  subCoachingStructure = "Coaching Structure",
-  subSelfEfficacy = "Self-Efficacy",
-  subAgencyKnowledgeSkills = "Agency (Knowledge/Skills)",
-  subAgencyActionableTools = "Agency (Actionable Tools)"
+  themePositiveSharedExperience = "Positive Community Atmosphere",
+  themePatientEmpowerment       = "Collaborative Engaging Educational Environment",
+  themePatientActivation        = "Equipping Patients with Hope and Actionable Tools",
+  subIsolationReduced       = "Isolation Reduced",
+  subValidation             = "Validation",
+  subSharedCommunity        = "Shared Community",
+  subChangeNegHealthcare    = "Change from Negative Healthcare Experiences",
+  subGratitude              = "Gratitude",
+  subEnjoymentPositive      = "Positive Experience",
+  subContent                = "Presentation Content",
+  subTeachingCoachingStyle  = "Presenter Teaching/Coaching Style",
+  subCoachingStructure      = "Virtual Coaching Class Format",
+  subSelfEfficacy           = "Patient Self-Efficacy",
+  subAgencyKnowledgeSkills  = "Patient Agency (Knowledge, Skills)",
+  subAgencyActionableTools  = "Patient Agency (Actionable Tools)"
 )
 
 themeData <- data.frame(
